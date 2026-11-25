@@ -3,7 +3,7 @@
 #   irm https://raw.githubusercontent.com/Decsr/decsr-tui/main/scripts/install.ps1 | iex
 #
 # Environment:
-#   DECSR_VERSION      release tag to install, e.g. v0.7.1 (default: latest)
+#   DECSR_VERSION      release tag to install, e.g. v0.4.0 (default: latest)
 #   DECSR_INSTALL_DIR  install directory (default: %LOCALAPPDATA%\Programs\decsr-tui)
 #
 # No administrator rights needed: it writes to your user profile and your user PATH.
@@ -31,7 +31,7 @@ function Install-DecsrTui {
             $rel = Invoke-RestMethod -UseBasicParsing -Uri "https://api.github.com/repos/$repo/releases/latest" -Headers @{ 'User-Agent' = 'decsr-tui-installer' }
             $tag = $rel.tag_name
         } catch {
-            throw "could not determine the latest release (is one published? GitHub API rate limit? set `$env:DECSR_VERSION, e.g. 'v0.7.1'): $($_.Exception.Message)"
+            throw "could not determine the latest release (is one published? GitHub API rate limit? set `$env:DECSR_VERSION, e.g. 'v0.4.0'): $($_.Exception.Message)"
         }
     }
     if (-not $tag) { throw 'could not determine the latest release' }

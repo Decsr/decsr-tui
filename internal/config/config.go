@@ -44,6 +44,20 @@ type Config struct {
 	Theme          string   `yaml:"theme"` // auto (default) | dark | light
 	Agents         []string `yaml:"agents"`
 	CustomCommands []Custom `yaml:"customCommands"`
+
+	// Pricing is the USD price per million tokens, keyed by a model id or a
+	// glob (path.Match) such as "deepseek-*". There are no built-in prices; a
+	// cost shows only for a model that has one.
+	Pricing map[string]ModelPrice `yaml:"pricing,omitempty"`
+}
+
+// ModelPrice is the price of one model in USD per million tokens.
+// CacheReadPerMTok is optional: cached input is billed at InputPerMTok when it
+// is zero.
+type ModelPrice struct {
+	InputPerMTok     float64 `yaml:"input_per_mtok"`
+	OutputPerMTok    float64 `yaml:"output_per_mtok"`
+	CacheReadPerMTok float64 `yaml:"cache_read_per_mtok,omitempty"`
 }
 
 // Contexts are the values a custom command's context may take.

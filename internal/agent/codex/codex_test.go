@@ -55,12 +55,16 @@ func TestSessionsFilteredByCwd(t *testing.T) {
 	dir := filepath.Join(root, "2026", "01", "01")
 	os.Chtimes(filepath.Join(dir, "rollout-2026-01-01T10-00-00-c1c1.jsonl"), now, now.Add(-time.Hour))
 	os.Chtimes(filepath.Join(dir, "rollout-2026-01-01T08-00-00-c3c3.jsonl"), now, now.Add(-3*time.Hour))
+	want := 1
+	if agent.FoldCase() {
+		want = 2
+	}
 	ss, err := src.Sessions(repo)
-	if err != nil || len(ss) != 2 {
+	if err != nil || len(ss) != want {
 		t.Fatalf("sessions=%v err=%v", ss, err)
 	}
-	if ss[0].ID != "c1c1" || ss[1].ID != "c3c3" { // c3c3 matches case-insensitively with a trailing slash
-		t.Fatalf("order: %s %s", ss[0].ID, ss[1].ID)
+	if ss[0].ID != "c1c1" || (want == 2 && ss[1].ID != "c3c3") { // c3c3 matches case-insensitively with a trailing slash, where names fold case
+		t.Fatalf("order: %v", ss)
 	}
 	s := ss[0]
 	if s.Runner != "codex" || s.Title != "Fix the bug in x.go" || s.Branch != "main" || s.Model != "gpt-5-codex" || s.Cwd != repo || s.Live {
@@ -117,7 +121,7 @@ func TestTrackerSnapshot(t *testing.T) {
 	if last := s.Activities[len(s.Activities)-1]; last.Kind != agent.KindMessage || last.Title != "All done" {
 		t.Errorf("last: %+v", last)
 	}
-	if s.Usage != (agent.Usage{Input: 600, Output: 50, CacheRead: 400}) {
+	if s.Usage != (agent.Usage{Input: 600, Output: 50, CacheRead: 400, Context: 1}) {
 		t.Errorf("usage %+v", s.Usage)
 	}
 	if s.Session.Cwd != repo || s.Session.Model != "gpt-5-codex" {

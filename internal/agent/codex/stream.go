@@ -343,11 +343,16 @@ func (s *stream) handleEvent(ev item, raw json.RawMessage, at time.Time) {
 					Output int64 `json:"output_tokens"`
 					Write  int64 `json:"cache_write_input_tokens"`
 				} `json:"total_token_usage"`
+				Last struct {
+					Input int64 `json:"input_tokens"` // includes the cached part
+					Write int64 `json:"cache_write_input_tokens"`
+				} `json:"last_token_usage"`
 			} `json:"info"`
 		}
 		if json.Unmarshal(raw, &e) == nil && e.Info != nil {
 			t := e.Info.Total // cumulative for the session; input includes cached
-			s.usage = agent.Usage{Input: t.Input - t.Cached, Output: t.Output, CacheRead: t.Cached, CacheWrite: t.Write}
+			s.usage = agent.Usage{Input: t.Input - t.Cached, Output: t.Output, CacheRead: t.Cached, CacheWrite: t.Write,
+				Context: e.Info.Last.Input + e.Info.Last.Write}
 		}
 	case "exec_command_end":
 		s.finish(ev.CallID, ev.ExitCode != nil && *ev.ExitCode != 0, ev.AggregatedOutput, at, true)

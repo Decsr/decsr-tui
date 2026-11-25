@@ -44,7 +44,10 @@ type Activity struct {
 	Duration   time.Duration // tool_use -> tool_result
 }
 
-type Usage struct{ Input, Output, CacheRead, CacheWrite int64 }
+// Usage is the token count of a session or a subagent. Context is the size of
+// the latest prompt (input + cache read + cache write of the last assistant
+// turn), not a sum over turns.
+type Usage struct{ Input, Output, CacheRead, CacheWrite, Context int64 }
 
 type Session struct {
 	Runner                              string // "claude"

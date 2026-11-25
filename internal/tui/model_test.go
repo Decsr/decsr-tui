@@ -122,6 +122,9 @@ func newTestModelOpts(t *testing.T, src *fakeSource, opts Options) *Model {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if opts.Session == "" {
+		m.screen = scGit // the git tests drive the Git screen; Home and Watch have their own tests
+	}
 	pump(m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	drain(m, m.startup())
 	return m
@@ -361,7 +364,7 @@ func TestAgentEmptyAndHeader(t *testing.T) {
 	m2 := newTestModel(t, fakeAgent())
 	openAgent(t, m2)
 	h := ansi.Strip(strings.Split(m2.View(), "\n")[0])
-	if !strings.Contains(h, "claude") || !strings.Contains(h, runnerGlyph("claude", iconsUnicode)) || !strings.Contains(h, "Fix things") {
+	if !strings.Contains(h, "claude") || !strings.Contains(h, runnerGlyph("claude", iconsUnicode)) || !strings.Contains(h, "Explore") {
 		t.Fatalf("header lacks the live runner chip: %q", h)
 	}
 }

@@ -38,8 +38,9 @@ type popup struct {
 	in textinput.Model
 	ta textarea.Model
 
-	items []menuItem
-	cur   int
+	items  []menuItem
+	cur    int
+	scroll int // first visible row of the help list
 
 	yes    func() tea.Cmd
 	submit func(text string) tea.Cmd
@@ -135,7 +136,20 @@ func (m *Model) popupKey(msg tea.KeyMsg) tea.Cmd {
 				}
 			}
 		}
-	default: // error and help close on any key
+	case pkHelp: // j k and the page keys scroll; any other key closes
+		switch k {
+		case "j", "down":
+			p.scroll++
+		case "k", "up":
+			p.scroll = max(p.scroll-1, 0)
+		case "pgdown", "ctrl+d", " ":
+			p.scroll += 8
+		case "pgup", "ctrl+u":
+			p.scroll = max(p.scroll-8, 0)
+		default:
+			m.popup = nil
+		}
+	default: // error closes on any key
 		m.popup = nil
 	}
 	return nil

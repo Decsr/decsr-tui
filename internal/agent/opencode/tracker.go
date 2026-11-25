@@ -221,6 +221,9 @@ func build(d *sessData, cwdHint string) built {
 				b.usage.Output += tk.Output + tk.Reasoning
 				b.usage.CacheRead += tk.Cache.Read
 				b.usage.CacheWrite += tk.Cache.Write
+				if c := tk.Input + tk.Cache.Read + tk.Cache.Write; c > 0 {
+					b.usage.Context = c // messages are oldest first: the last one wins
+				}
 			}
 		} else if m.Role == "user" && m.Model.ModelID != "" && b.model == "" {
 			b.model = m.Model.ModelID

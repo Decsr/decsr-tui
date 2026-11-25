@@ -140,3 +140,15 @@ func detectTerminal(getenv func(string) string, tty bool, query func() bool) (da
 	}
 	return query(), true
 }
+
+// WithDark runs f with the dark variants of every adaptive colour, whatever
+// the theme is, and restores the theme after. A screen that paints its own dark
+// background (Home) renders inside it. It is for the render goroutine only.
+func WithDark(f func() string) string {
+	if IsDark() {
+		return f()
+	}
+	setDark(true)
+	defer setDark(false)
+	return f()
+}

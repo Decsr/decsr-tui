@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -108,7 +109,7 @@ func sessionByID(t *testing.T, src agent.Source, id string) agent.Session {
 func TestSessionsFilteredByCwd(t *testing.T) {
 	for name, root := range map[string]string{"json": copyTestdata(t), "sqlite": sqliteFixture(t)} {
 		src := NewWithRoot(root)
-		ss, err := src.Sessions(`\work\DEMO\`)
+		ss, err := src.Sessions(demoQuery())
 		if err != nil || len(ss) != 2 {
 			t.Fatalf("%s: sessions=%v err=%v", name, ss, err)
 		}
@@ -162,7 +163,7 @@ func checkSnapshot(t *testing.T, name string, s agent.Snapshot) {
 	if last := s.Activities[len(s.Activities)-1]; last.Kind != agent.KindMessage || last.Title != "All done" {
 		t.Errorf("%s last: %+v", name, last)
 	}
-	if s.Usage != (agent.Usage{Input: 100, Output: 25, CacheRead: 300, CacheWrite: 40}) {
+	if s.Usage != (agent.Usage{Input: 100, Output: 25, CacheRead: 300, CacheWrite: 40, Context: 440}) {
 		t.Errorf("%s usage %+v", name, s.Usage)
 	}
 	if s.Session.Model != "claude-sonnet-4" {
@@ -299,4 +300,16 @@ func TestSessionModelFromAssistantMessage(t *testing.T) {
 			t.Errorf("%s: snapshot model %q", name, got)
 		}
 	}
+}
+
+// demoQuery spells the demo repo the way this OS may: with a different case and
+// a trailing separator where file names fold case.
+func demoQuery() string {
+	switch runtime.GOOS {
+	case "windows":
+		return `\work\DEMO\`
+	case "darwin":
+		return "/work/DEMO/"
+	}
+	return "/work/demo/"
 }

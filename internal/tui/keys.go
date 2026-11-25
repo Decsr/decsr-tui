@@ -6,9 +6,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-
-	"github.com/Decsr/decsr-tui/internal/ui"
 )
 
 type binding struct{ key, desc string }
@@ -102,56 +99,6 @@ func (m *Model) bindings() []binding {
 	return nil
 }
 
-// hints is the hint bar: the keys of the focused panel in its current mode,
-// then help and quit. When they do not fit, the ones in the middle go first.
-func (m *Model) hints(w int) string {
-	var hs []ui.Hint
-	for _, b := range m.bindings() {
-		hs = append(hs, ui.Hint{Key: showKey(b.key), Label: b.desc})
-	}
-	if !m.modal() && !m.mainFocus {
-		hs = append(hs, ui.Hint{Key: "?", Label: "help"}, ui.Hint{Key: "q", Label: "quit"})
-	}
-	return ui.HintBar(fitHints(w, hs), w)
-}
-
-// fitHints keeps the first hint and the last (quit) and drops the ones in
-// between, from the back, until the bar fits width.
-func fitHints(width int, hints []ui.Hint) []ui.Hint {
-	size := func(hs []ui.Hint) int {
-		total := 2 + 3*max(len(hs)-1, 0)
-		for _, h := range hs {
-			total += lenW(h.Key) + 1 + lenW(h.Label)
-		}
-		return total
-	}
-	for len(hints) > 2 && size(hints) > width {
-		hints = append(hints[:len(hints)-2], hints[len(hints)-1])
-	}
-	return hints
-}
-
-func (m *Model) helpPopup() {
-	var b strings.Builder
-	row := func(k, d string) {
-		fmt.Fprintf(&b, "%s%s %s\n", lipgloss.NewStyle().Foreground(ui.Accent).Bold(true).Render(fmt.Sprintf("%-8s", showKey(k))), "", sText.Render(d))
-	}
-	b.WriteString(sBold.Render(panelNames[m.focus]) + "\n")
-	for _, bd := range m.bindings() {
-		row(bd.key, bd.desc)
-	}
-	b.WriteString("\n" + sBold.Render("Global") + "\n")
-	for _, bd := range globalBindings {
-		row(bd.key, bd.desc)
-	}
-	if cs := m.customHere(); len(cs) > 0 {
-		b.WriteString("\n" + sBold.Render("Custom") + "\n")
-		for _, cc := range cs {
-			row(cc.Key, cc.Description)
-		}
-	}
-	m.popup = &popup{kind: pkHelp, title: "Keybindings", body: strings.TrimRight(b.String(), "\n")}
-}
 func (m *Model) actionMenu() {
 	var items []menuItem
 	for _, b := range m.bindings() {
@@ -175,6 +122,9 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 		return m.popupKey(msg)
 	}
 	k := keyStr(msg)
+	if m.screen == scWatch && m.watch.overlay != nil && k != "ctrl+c" {
+		return m.overlayKey(k)
+	}
 	switch k {
 	case "ctrl+c", "q":
 		if m.net != nil {
@@ -183,8 +133,19 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 		m.quit = true
 		return nil
 	case "ctrl+d", "ctrl+u", "pgdown", "pgup":
-		m.scrollMain(k)
-		return nil
+		if m.screen == scGit {
+			m.scrollMain(k)
+			return nil
+		}
+	}
+	if m.screen != scGit {
+		if cmd, ok := m.screenKey(k); ok {
+			return cmd
+		}
+		if m.screen == scHome {
+			return m.homeKey(k)
+		}
+		return m.watchKey(k)
 	}
 	if m.main.stg != nil {
 		return m.stagingKey(k)
@@ -197,6 +158,9 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 	}
 	if cc, ok := m.customFor(k); ok {
 		return m.runCustom(cc)
+	}
+	if cmd, ok := m.screenKey(k); ok {
+		return cmd
 	}
 	switch k {
 	case "1", "2", "3", "4", "5":

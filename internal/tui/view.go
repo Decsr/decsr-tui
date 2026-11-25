@@ -8,7 +8,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/Decsr/decsr-tui/internal/agent"
 	"github.com/Decsr/decsr-tui/internal/ui"
 )
 
@@ -44,8 +43,8 @@ var groupColor = [numPanels]lipgloss.TerminalColor{
 	pAgent:    ui.GroupAgents,
 }
 
-// bodyH is the height between the header line and the status and hint lines.
-func (m *Model) bodyH() int { return max(m.h-3, 1) }
+// bodyH is the height between the notice line and the status and hint lines.
+func (m *Model) bodyH() int { return max(m.h-4, 1) }
 
 // layout computes the screen rectangles from the size and focus. Below
 // minSplitW the screen is one column (decsr's narrow collapse): the focused
@@ -254,102 +253,44 @@ func (m *Model) mainBox(r rect) string {
 	return ui.PanelSized(o, r.w, r.h)
 }
 
-// headerLine is the top line: the decsr mark and repo on the left with the
-// branch, ahead and behind, the repo state and a running network command; the
-// agent chip on the right.
-func (m *Model) headerLine() string {
-	branch := m.head.Branch
-	if m.head.Detached {
-		branch = "(detached)"
-	}
-	left := ui.Wordmark("decsr") + sDim.Render(" · ") + sBold.Render(repoName(m.repo))
-	if branch != "" {
-		left += "  " + chip(branch, ui.GroupProject)
-	}
-	if m.head.Ahead > 0 {
-		left += sYellow.Render(fmt.Sprintf(" ↑%d", m.head.Ahead))
-	}
-	if m.head.Behind > 0 {
-		left += sYellow.Render(fmt.Sprintf(" ↓%d", m.head.Behind))
-	}
-	if m.state != 0 {
-		left += "  " + chip(strings.ToUpper(m.state.String()), ui.Fail)
-	}
-	if m.net != nil {
-		left += "  " + sYellow.Render(m.spin.View()+m.net.name+" · esc cancels")
-	}
-	return ui.Header(left, m.agentChip(max(m.w/2, 12)), m.w)
-}
-
-// agentChip is the agent part of the header: the live session (else the one
-// being watched) as a pill in its runner's colour, with the spinner while the
-// session works, and its title.
-func (m *Model) agentChip(maxW int) string {
-	a := &m.agent
-	var s agent.Session
-	live, found := 0, false
-	for _, x := range a.sessions {
-		if x.Live {
-			if !found {
-				s, found = x, true
-			}
-			live++
-		}
-	}
-	if !found && a.cur != "" {
-		s, found = a.snap.Session, true
-	}
-	if !found {
-		return sDim.Render("no agent session")
-	}
-	runner := s.Runner
-	if runner == "" {
-		runner = m.src.Name()
-	}
-	var out string
-	if s.Live {
-		lead := "●"
-		if m.agentRunning() {
-			lead = m.spinFrame()
-		}
-		out = lipgloss.NewStyle().Foreground(ui.Accent).Render(lead) + " " + chip(runnerGlyph(runner, iconsUnicode)+" "+runner, ui.RunnerColor(runner))
-		if live > 1 {
-			out += sDim.Render(fmt.Sprintf(" +%d", live-1))
-		}
-	} else {
-		out = sDim.Render("○ ") + runnerBadge(runner, iconsUnicode) + " " + sDim.Render(runner+" idle")
-	}
-	if t := oneLine(sanitizeText(s.Title)); t != "" {
-		if room := maxW - lenW(out) - 3; room >= 6 {
-			out += sDim.Render(" · " + ansi.Truncate(t, room, "…"))
-		}
-	}
-	return ansi.Truncate(out, maxW, "")
-}
-
-// statusLine is decsr's status bar: the repo or network state and the last
-// line of the command log.
-func (m *Model) statusLine() string {
-	state := "idle"
-	switch {
-	case m.net != nil:
-		state = m.net.name + "…"
-	case m.state != 0:
-		state = strings.ToLower(m.state.String())
-	}
-	info := ""
-	if last := m.log.last(1); len(last) > 0 {
-		info = oneLine(last[0])
-	}
-	return ansi.Truncate(NewStatusBar(m.w).WithState(state).WithStageInfo(info).View(), m.w, "")
-}
-
-// View renders the whole screen: header, panels and main pane, status bar and
-// hint bar, then the popup over it.
+// View renders the whole screen: header, notice line, the body of the screen
+// (Home, Git or Watch), status line and footer, then the popup over it. Home
+// is drawn on the painted dark background; Git and Watch keep the terminal's.
 func (m *Model) View() string {
 	if m.w < 1 || m.h < 2 {
 		return ""
 	}
+	if m.screen == scHome {
+		return ui.WithDark(func() string { return paintBackground(m.compose(), m.w, m.h) })
+	}
+	return m.compose()
+}
+
+func (m *Model) compose() string {
+	var body []string
+	switch m.screen {
+	case scHome:
+		body = m.homeBody(m.w, m.bodyH())
+	case scWatch:
+		body = m.watchBody(m.w, m.bodyH())
+	default:
+		body = m.gitBody()
+	}
+	rows := append([]string{m.headerLine(), m.noticeLine()}, body...)
+	rows = append(rows, m.statusLine(), m.hints(m.w))
+	v := strings.Join(rows, "\n")
+	if m.screen == scWatch && m.watch.overlay != nil && m.popup == nil {
+		v = ui.PlaceOverlay(v, m.overlayBox(), m.w, m.h)
+	}
+	if m.popup != nil {
+		v = ui.PlaceOverlay(v, m.popupBox(m.w, m.h), m.w, m.h)
+	}
+	return fitView(v, m.w, m.h)
+}
+
+// gitBody is the Git screen: the five panels and the command log on the left,
+// the main pane on the right, in exactly bodyH rows.
+func (m *Model) gitBody() []string {
 	lay := m.layout()
 	var left []string
 	for _, pr := range lay.panels {
@@ -362,7 +303,7 @@ func (m *Model) View() string {
 	if lay.main.w > 0 {
 		right = strings.Split(m.mainBox(lay.main), "\n")
 	}
-	rows := []string{m.headerLine()}
+	var rows []string
 	for i := 0; i < m.bodyH(); i++ {
 		var l, r string
 		if lay.left > 0 {
@@ -373,12 +314,7 @@ func (m *Model) View() string {
 		}
 		rows = append(rows, l+r)
 	}
-	rows = append(rows, m.statusLine(), m.hints(m.w))
-	v := strings.Join(rows, "\n")
-	if m.popup != nil {
-		v = ui.PlaceOverlay(v, m.popupBox(m.w, m.h), m.w, m.h)
-	}
-	return fitView(v, m.w, m.h)
+	return rows
 }
 
 // fitView guarantees at most h lines of at most w cells.
@@ -405,11 +341,11 @@ func pick(lines []string, i int) string {
 // ---- mouse ----
 
 func (m *Model) mouse(msg tea.MouseMsg) tea.Cmd {
-	if m.popup != nil {
+	if m.popup != nil || m.screen != scGit {
 		return nil
 	}
 	lay := m.layout()
-	y := msg.Y - 1 // the header line
+	y := msg.Y - 2 // the header and the notice line
 	in := func(r rect) bool {
 		return r.w > 0 && msg.X >= r.x && msg.X < r.x+r.w && y >= r.y && y < r.y+r.h
 	}

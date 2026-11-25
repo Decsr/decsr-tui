@@ -38,6 +38,8 @@ type liveRun struct {
 	Started time.Time
 	Ended   time.Time // zero while running
 	Usage   agent.Usage
+	// Estimated marks the counts as "~": the last turn of a running node is still open.
+	Estimated bool
 }
 
 // runningLine is "⠋ claude · opus-5-5 · effort medium · 1m 12s · ↑ 182k
@@ -80,12 +82,16 @@ func runningLine(r liveRun, spin string, now time.Time) string {
 	if !r.Started.IsZero() && !end.IsZero() && !end.Before(r.Started) {
 		parts = append(parts, text.Render(feedDuration(end.Sub(r.Started))))
 	}
-	if u := r.Usage; u.Input > 0 || u.Output > 0 {
-		tok := "↑ " + tokCompact(int(u.Input))
-		if u.CacheRead > 0 {
-			tok += " (" + tokCompact(int(u.CacheRead)) + " cached)"
+	if u := r.Usage; promptTokens(u) > 0 || u.Output > 0 {
+		est := ""
+		if r.Estimated {
+			est = "~"
 		}
-		tok += " ↓ " + tokCompact(int(u.Output))
+		tok := "↑ " + est + tokCompact(promptTokens(u))
+		if u.CacheRead > 0 {
+			tok += " (" + est + tokCompact(int(u.CacheRead)) + " cached)"
+		}
+		tok += " ↓ " + est + tokCompact(int(u.Output))
 		parts = append(parts, dim.Render(tok))
 	}
 	return glyph + " " + strings.Join(parts, dim.Render(" · "))

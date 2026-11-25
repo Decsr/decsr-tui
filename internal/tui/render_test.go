@@ -180,7 +180,7 @@ func TestLiveRenderers(t *testing.T) {
 		t.Errorf("liveSteps rows = %d", got)
 	}
 	line := ansi.Strip(runningLine(liveRun{State: agent.StateDone, Runner: "claude", Model: "anthropic/opus", Started: now.Add(-72 * time.Second), Ended: now,
-		Usage: agent.Usage{Input: 182000, Output: 2100, CacheRead: 164000}}, "", now))
+		Usage: agent.Usage{Input: 18000, Output: 2100, CacheRead: 164000}}, "", now))
 	for _, want := range []string{"✓", "claude", "opus", "1m 12s", "↑ 182k", "164k cached", "↓ 2.1k"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("running line %q lacks %q", line, want)

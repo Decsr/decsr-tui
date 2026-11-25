@@ -19,11 +19,17 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # The release notes are this version's section of CHANGELOG.md.
+      - name: Extract release notes
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" 'index($0, "## [" v "]") == 1 {on=1; next} on && /^## / {exit} on' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          [ -s "$RUNNER_TEMP/release-notes.md" ] || { echo "no CHANGELOG.md section for $v" >&2; exit 1; }
+
       - uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: '~> v2'
-          args: release --clean
+          args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}

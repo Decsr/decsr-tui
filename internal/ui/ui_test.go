@@ -423,3 +423,16 @@ func TestJoinColumnsKeepsGutterAroundDivider(t *testing.T) {
 		}
 	}
 }
+
+func TestWithDarkPinsAndRestores(t *testing.T) {
+	Apply(ThemeLight, nil)
+	t.Cleanup(func() { Apply(ThemeDark, nil) })
+	inside := false
+	WithDark(func() string { inside = IsDark(); return "" })
+	if !inside {
+		t.Fatal("WithDark did not pin the dark theme")
+	}
+	if IsDark() {
+		t.Fatal("WithDark did not restore the light theme")
+	}
+}

@@ -203,6 +203,9 @@ func (s *stream) handleAssistant(r record, at time.Time) {
 	if r.Message.Model != "" {
 		s.model = r.Message.Model
 	}
+	if u := r.Message.Usage; u != nil {
+		s.usage.Context = u.Input + u.CacheRead + u.CacheWrite
+	}
 	if u := r.Message.Usage; u != nil && (r.Message.ID == "" || !s.seenMsg[r.Message.ID]) {
 		s.usage.Input += u.Input
 		s.usage.Output += u.Output

@@ -111,7 +111,7 @@ func TestTrackerSnapshot(t *testing.T) {
 		t.Errorf("t5 should be running: %+v", t5)
 	}
 	// usage dedupe: m1 counted once (10/5/100/20) + 4 messages of 1/1.
-	if s.Usage != (agent.Usage{Input: 14, Output: 9, CacheRead: 100, CacheWrite: 20}) {
+	if s.Usage != (agent.Usage{Input: 14, Output: 9, CacheRead: 100, CacheWrite: 20, Context: 1}) {
 		t.Errorf("usage %+v", s.Usage)
 	}
 	// subagent linked via meta.json

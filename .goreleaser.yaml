@@ -27,27 +27,30 @@ archives:
 checksum:
   name_template: checksums.txt
 
-# Homebrew tap. goreleaser v2.10+ deprecates `brews` (formulas) in favour of
-# casks. The cask is only pushed when HOMEBREW_TAP_GITHUB_TOKEN is set, so a
-# release does not fail while the tap repo or the secret do not exist yet.
-homebrew_casks:
-  - name: decsr-tui
-    ids: [decsr-tui]
-    binaries: [decsr-tui]
-    homepage: https://github.com/Decsr/decsr-tui
-    description: Git client that also watches coding-agent sessions read-only
-    skip_upload: '{{ if index .Env "HOMEBREW_TAP_GITHUB_TOKEN" }}auto{{ else }}true{{ end }}'
-    repository:
-      owner: Decsr
-      name: homebrew-tap
-      token: '{{ index .Env "HOMEBREW_TAP_GITHUB_TOKEN" }}'
-    hooks:
-      post:
-        install_steps: |
-          on_macos do
-            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/decsr-tui"]
-          end
+# Homebrew is disabled for now: the Decsr/homebrew-tap repository and its
+# token do not exist yet, and a missing tap would fail the whole release. To
+# enable it, create the tap, add HOMEBREW_TAP_GITHUB_TOKEN as a repository
+# secret and restore the block (and the env line in release.yml).
+#
+# homebrew_casks:
+#   - name: decsr-tui
+#     ids: [decsr-tui]
+#     binaries: [decsr-tui]
+#     homepage: https://github.com/Decsr/decsr-tui
+#     description: Git client that also watches coding-agent sessions read-only
+#     repository:
+#       owner: Decsr
+#       name: homebrew-tap
+#       token: '{{ index .Env "HOMEBREW_TAP_GITHUB_TOKEN" }}'
+#     hooks:
+#       post:
+#         install_steps: |
+#           on_macos do
+#             run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/decsr-tui"]
+#           end
 
+# The release workflow passes this version's CHANGELOG.md section with
+# --release-notes. This block is the fallback (commit list) for a local run.
 changelog:
   sort: asc
   filters:
@@ -55,3 +58,19 @@ changelog:
       - '^docs:'
       - '^chore:'
       - '^test:'
+
+release:
+  header: |
+    ## decsr-tui {{ .Tag }}
+
+    A git client and a live coding-agent watcher in one terminal UI.
+  footer: |
+    ## Install
+
+    Ubuntu: `curl -fsSL https://raw.githubusercontent.com/Decsr/decsr-tui/main/scripts/install.sh | sh`
+
+    Windows (PowerShell): `irm https://raw.githubusercontent.com/Decsr/decsr-tui/main/scripts/install.ps1 | iex`
+
+    Or `go install github.com/Decsr/decsr-tui/cmd/decsr-tui@{{ .Tag }}`. The
+    archives are checked against `checksums.txt`. See the
+    [README](https://github.com/Decsr/decsr-tui#readme) for the keys and config.

@@ -18,7 +18,7 @@ import (
 )
 
 // version is set at release time with -ldflags "-X main.version=...".
-var version = "0.3.0"
+var version = "0.4.0"
 
 // sources builds the agent source from the runners the config enables.
 func sources(names []string) agent.Source {

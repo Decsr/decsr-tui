@@ -19,6 +19,7 @@ import (
 	"github.com/Decsr/decsr-tui/internal/agent"
 	"github.com/Decsr/decsr-tui/internal/config"
 	"github.com/Decsr/decsr-tui/internal/git"
+	"github.com/Decsr/decsr-tui/internal/ui"
 )
 
 type panelID int
@@ -106,6 +107,14 @@ type Model struct {
 	frame   int
 	polls   int
 	quit    bool
+
+	screen   screen
+	home     homeState
+	watch    watchState
+	note     notice
+	clock    func() time.Time // nil means time.Now; tests set it
+	counts   map[string]nodeCount
+	counting bool
 }
 
 // New opens the repository at dir.
@@ -122,6 +131,10 @@ func New(dir string, src agent.Source, opts Options) (*Model, error) {
 	m.spin = spinner.New(spinner.WithSpinner(pixelSpinner))
 	m.files = filesPanel{tree: true, collapsed: map[string]bool{}}
 	m.agent = agentPanel{expanded: map[string]bool{}, follow: true}
+	m.watch = newWatchState("", false, false)
+	if opts.Session != "" {
+		m.screen = scWatch // --session opens Watch directly
+	}
 	return m, nil
 }
 
@@ -149,6 +162,7 @@ type (
 		id      string
 		changed bool
 		snap    agent.Snapshot
+		err     error
 	}
 	mainMsg struct {
 		seq        int
@@ -260,6 +274,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.quit {
 		return m, tea.Quit
 	}
+	if m.screen != scGit {
+		return m, cmd
+	}
 	return m, tea.Batch(cmd, m.syncMain())
 }
 
@@ -291,6 +308,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.applyData(msg)
 	case sessionsMsg:
 		m.applySessions(msg.sessions)
+		return m.countsCmd(msg.sessions)
+	case countsMsg:
+		m.applyCounts(msg.counts)
 	case agentMsg:
 		return m.applyAgent(msg)
 	case customDoneMsg:
@@ -367,6 +387,7 @@ func (m *Model) netDone(msg netDoneMsg) tea.Cmd {
 	switch {
 	case msg.cancelled:
 		m.log.add(msg.name + " cancelled")
+		m.say(ui.ResultInfo, msg.name+" cancelled")
 	case msg.err != nil:
 		if msg.name == "push" && isRejected(msg.err) {
 			m.confirm("Push rejected", "The remote has commits you do not have.\nForce push with lease?", func() tea.Cmd {
@@ -374,7 +395,11 @@ func (m *Model) netDone(msg netDoneMsg) tea.Cmd {
 			})
 		} else {
 			m.errorPopup(msg.err)
+			m.say(ui.ResultError, msg.name+" failed: "+firstLine(msg.err.Error()))
 		}
+	}
+	if msg.err == nil && !msg.cancelled {
+		m.say(ui.ResultOK, msg.name+" done")
 	}
 	return m.loadCmd(true)
 }
@@ -416,8 +441,8 @@ func (m *Model) agentPollCmd() tea.Cmd {
 	a.polling = true
 	tr, id := a.tracker, a.cur
 	return func() tea.Msg {
-		changed, _ := tr.Poll()
-		return agentMsg{id: id, changed: changed, snap: tr.Snapshot()}
+		changed, err := tr.Poll()
+		return agentMsg{id: id, changed: changed, snap: tr.Snapshot(), err: err}
 	}
 }
 
@@ -427,11 +452,24 @@ func (m *Model) applyAgent(msg agentMsg) tea.Cmd {
 		return nil
 	}
 	a.polling = false
+	if msg.err != nil {
+		if m.watch.pollErr == "" {
+			m.say(ui.ResultError, "cannot read the session: "+oneLine(msg.err.Error()))
+		}
+		m.watch.pollErr = oneLine(msg.err.Error())
+	} else {
+		m.watch.pollErr = ""
+	}
+	was := m.agentRunning()
 	if a.loaded {
 		m.logAgentEvents(a.snap, msg.snap)
 	}
 	a.loaded = true
 	a.snap = msg.snap
+	m.refreshWatch()
+	if was && !m.agentRunning() {
+		m.say(ui.ResultOK, m.sessionWord()+" finished")
+	}
 	if a.follow && a.open && !a.changes {
 		a.toEnd = true
 	}
@@ -476,6 +514,8 @@ func (m *Model) switchRepo(dir string) tea.Cmd {
 	m.commits = commitsPanel{}
 	m.stashes = stashPanel{}
 	m.agent = agentPanel{expanded: map[string]bool{}, follow: true}
+	m.watch = newWatchState("", false, m.watch.hideLive)
+	m.counts = nil
 	m.main = mainView{}
 	m.focus, m.mainFocus = pFiles, false
 	m.log.add("switched to worktree " + repo.Dir)
@@ -496,11 +536,13 @@ func (m *Model) logAgentEvents(old, cur agent.Snapshot) {
 		switch {
 		case !ok:
 			m.log.add("subagent " + name + " started")
+			m.say(ui.ResultInfo, "subagent "+name+" started")
 			if s.Finished {
 				m.log.add("subagent " + name + " finished")
 			}
 		case !prev.Finished && s.Finished:
 			m.log.add("subagent " + name + " finished")
+			m.say(ui.ResultOK, "subagent "+name+" finished")
 		}
 	}
 }
@@ -566,10 +608,19 @@ func (m *Model) items(p panelID, w int) []item {
 
 func (m *Model) errorPopup(err error) {
 	m.popup = newError(err.Error())
+	m.say(ui.ResultError, firstLine(err.Error()))
 }
 
 func (m *Model) confirm(title, body string, yes func() tea.Cmd) {
 	m.popup = &popup{kind: pkConfirm, title: title, body: body, yes: yes}
+}
+
+// sessionWord names the watched session's runner for a notice.
+func (m *Model) sessionWord() string {
+	if r := m.agent.snap.Session.Runner; r != "" {
+		return r
+	}
+	return m.src.Name()
 }
 
 func repoName(r *git.Repo) string { return filepath.Base(r.Dir) }

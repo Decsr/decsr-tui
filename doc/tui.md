@@ -3,13 +3,44 @@
 The screen of decsr-tui, panel by panel, and every key. For install and the
 config file see the [README](../README.md).
 
-## Layout
+## Screens
+
+Three screens, switched from the header tabs or with a key from any screen
+(`1`-`5` stay the panels inside Git):
+
+| Key | Screen |
+|---|---|
+| `H` | **Home**: the starfield logo on a painted dark background and three boxes: Sessions (every runner, newest first, live dot, age, node count), Repo (branch, ahead and behind, staged, unstaged and untracked counts, state) and Menu (Watch, Git, Help). `↑↓` (`j` `k`, `home` `end`) move, `←→` (`h` `l`) or `tab` switch list, `enter` or `space` opens the session in Watch or the menu entry, `w` and `g` jump to Watch and Git, `R` refreshes. The program starts here unless `--session` is given. |
+| `G` | **Git**: the five panels and the main pane described below. On this screen `G` stays "bottom of the list". |
+| `W` | **Watch**: decsr's Workspace for one session. The session is the root node, every subagent a child node (nested ones deeper). Left the node graph, in the middle one card per node, on the right the live pane of the selected node; below 120 columns the live pane moves under them, below 80 the graph is left out. |
+
+Every screen has the same chrome: the header, a notice line under it, the screen, the status line and the footer of keycap pills.
+
+### Watch keys
+
+| Key | Action |
+|---|---|
+| `↑↓`, `j k`, `home` `end` | Previous or next node, first or last; the graph and the feed move together |
+| `←` `→`, `h` `l` | Parent node, first child node |
+| `f` | Follow: keep the newest node and step selected while the session is live. Moving turns it off |
+| `space` | Expand the card to its whole timeline |
+| `[` `]` | Older or newer step of the node |
+| `enter` | Full detail of the selected step in an overlay (`esc` closes) |
+| `v` | Hide or show the live pane |
+| `n` `p` | Next or previous changed file of the node |
+| `pgup` `pgdn`, `ctrl+u` `ctrl+d` | Scroll the diff of the selected file |
+| `R`, `?` | Refresh, help |
+
+The live pane shows the running line (runner, model, duration, tokens in and out, the cached part; `~` marks the counts of a running node as estimates), `ctx 18k / 200k` with a meter (only when the window of the model is known), the cost (only when a price is configured under `pricing:`, labelled `est.`), the timeline with live text and an animated `thinking...`, and the changed files with the diff of the selected one. A running node that has been silent for a minute says `no activity for 1m`.
+
+## Layout (Git)
 
 ```text
-header          ◆ decsr · repo  [branch] ↑↓  [REBASING]            ▘ ✳ claude · title
+header          ◆ decsr · repo  H Home G Git W Watch  [branch] ↑↓  [REBASING]   agent strip
+notice line     ✓ push done   (fades after a few seconds)
 left column     five framed panels, the focused one open        main pane (one frame)
-status bar      ● state   ▸ last command-log line
-hint bar        the keys of the focused panel · ? help · q quit
+status line     ● state   ▸ last command-log line
+footer          keycap pills: the keys of the focused panel · ? help · q quit
 ```
 
 - The left column is 35% of the width (30 to 56 cells), the main pane the rest.
@@ -36,7 +67,8 @@ hint bar        the keys of the focused panel · ? help · q quit
 | `↑n ↓n` | Commits ahead of and behind the upstream |
 | `MERGING`, `REBASING`, ... | A red chip while the repository is in that state (`m` continues or aborts) |
 | `▘ fetch · esc cancels` | A running network command |
-| agent chip | Right side. A pill in the runner's colour with the runner glyph and name, the title of the session dimmed after it, `+n` for more live sessions. A spinner leads while the session has an activity in progress, a `●` while it is live and idle. With no live session the last watched session shows dim with `○`. |
+| tabs | `H Home`, `G Git`, `W Watch`; the active one is a filled pill (in brackets without colours) |
+| agent strip | Right side. One chip per node: status glyph (a spinner while it runs), short label, tokens and `×calls` (`[▖ Explore 3.1k ×4]`); below 110 columns just glyph, label and tokens. |
 
 Runner glyphs and colours are decsr's: claude `✳` orange, codex `◎` green,
 opencode `⬡` yellow.
@@ -148,7 +180,7 @@ Moving up (`k`) switches follow off; `G` or `f` switches it on again.
 ## Mouse
 
 A click on a panel row focuses the panel and selects the row; the wheel moves
-the selection of a panel or scrolls the main pane.
+the selection of a panel or scrolls the main pane. The mouse is handled on the Git screen only; Home and Watch are keyboard-only.
 
 ## Global keys
 
@@ -163,6 +195,7 @@ the selection of a panel or scrolls the main pane.
 | `R` | Refresh git and the agent sessions |
 | `@` | Show or hide the command log |
 | `x` | The keys of the focused panel and its custom commands as a menu |
+| `H` `W` `G` | Go to Home, Watch, Git |
 | `?` | Help |
 | `q`, `ctrl+c` | Quit |
 

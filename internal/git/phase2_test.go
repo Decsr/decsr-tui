@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -158,7 +159,11 @@ func TestRebaseActions(t *testing.T) {
 		}
 	})
 	t.Run("copyCmd quoting", func(t *testing.T) {
-		if got := copyCmd(`C:\a b\it's`); got != `cp 'C:/a b/it'\''s'` {
+		want := `cp 'C:\a b\it'\''s'`
+		if runtime.GOOS == "windows" {
+			want = `cp 'C:/a b/it'\''s'` // git's sh reads backslashes as escapes
+		}
+		if got := copyCmd(`C:\a b\it's`); got != want {
 			t.Fatal(got)
 		}
 	})
