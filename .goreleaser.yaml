@@ -1,11 +1,11 @@
 version: 2
 
-project_name: decsr
+project_name: decsr-tui
 
 builds:
-  - id: decsr
-    main: ./cmd/decsr
-    binary: decsr
+  - id: decsr-tui
+    main: ./cmd/decsr-tui
+    binary: decsr-tui
     env:
       - CGO_ENABLED=0
     goos: [linux, darwin, windows]
@@ -14,7 +14,7 @@ builds:
       - -s -w -X main.version={{.Version}}
 
 archives:
-  - id: decsr
+  - id: decsr-tui
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
@@ -31,11 +31,11 @@ checksum:
 # casks. The cask is only pushed when HOMEBREW_TAP_GITHUB_TOKEN is set, so a
 # release does not fail while the tap repo or the secret do not exist yet.
 homebrew_casks:
-  - name: decsr
-    ids: [decsr]
-    binaries: [decsr]
-    homepage: https://github.com/Decsr/Decsr-Code
-    description: Drive a team of AI agents through a structured software development pipeline
+  - name: decsr-tui
+    ids: [decsr-tui]
+    binaries: [decsr-tui]
+    homepage: https://github.com/Decsr/decsr-tui
+    description: Git client that also watches coding-agent sessions read-only
     skip_upload: '{{ if index .Env "HOMEBREW_TAP_GITHUB_TOKEN" }}auto{{ else }}true{{ end }}'
     repository:
       owner: Decsr
@@ -45,7 +45,7 @@ homebrew_casks:
       post:
         install_steps: |
           on_macos do
-            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/decsr"]
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/decsr-tui"]
           end
 
 changelog:

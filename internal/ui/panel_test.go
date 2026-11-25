@@ -324,18 +324,6 @@ func TestRunnerColor(t *testing.T) {
 	}
 }
 
-func TestGroupColor(t *testing.T) {
-	want := map[string]string{GroupNameSession: "#5ee0ff", GroupNameRun: "#b48cff", GroupNameAgents: "#ff7ac6", GroupNameUsage: "#ffb86b", GroupNameProject: "#4fd6b0"}
-	for g, hex := range want {
-		if GroupColor(g).Dark != hex || GroupColor(g).Light == "" {
-			t.Errorf("%s: %v", g, GroupColor(g))
-		}
-	}
-	if GroupColor("nope") != Accent {
-		t.Error("an unknown group is accent")
-	}
-}
-
 func TestLogoGradientRunsAcrossColumns(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	rows := Logo(true)
@@ -355,5 +343,26 @@ func TestLogoGradientRunsAcrossColumns(t *testing.T) {
 	}
 	if !strings.Contains(rows[1], "38;2;255;184;107") && !strings.Contains(rows[0], "38;2;255;184;107") {
 		t.Error("the logo does not end in the last brand colour")
+	}
+}
+
+func TestPanelSizedExactSize(t *testing.T) {
+	body := []string{"one", "two", "three", "four", "five", "six"}
+	for _, sz := range [][2]int{{12, 3}, {30, 3}, {30, 6}, {60, 12}} {
+		for _, tabs := range [][]string{nil, {"A", "B"}} {
+			o := PanelOpts{Title: "Files", Tabs: tabs, Body: body, Scroll: 2, TitleColor: Muted}
+			out := strings.Split(PanelSized(o, sz[0], sz[1]), "\n")
+			if len(out) != sz[1] && !(len(tabs) > 0 && sz[1] < 4) {
+				t.Errorf("%v tabs=%v: %d rows", sz, tabs, len(out))
+			}
+			for i, l := range out {
+				if w := lipgloss.Width(l); w != sz[0] {
+					t.Errorf("%v row %d: width %d", sz, i, w)
+				}
+			}
+		}
+	}
+	if PanelSized(PanelOpts{}, 11, 5) != "" || PanelSized(PanelOpts{}, 20, 2) != "" {
+		t.Error("a frame below 12x3 should be empty")
 	}
 }

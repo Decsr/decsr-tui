@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/Decsr/Decsr-Code/internal/ui"
+	"github.com/Decsr/decsr-tui/internal/ui"
 )
 
 // markdownMinWidth is the narrowest pane that renders Markdown; below it the

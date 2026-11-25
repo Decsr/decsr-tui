@@ -1,0 +1,11 @@
+{
+ "id": "ses_other",
+ "version": "1.0.0",
+ "projectID": "p2",
+ "directory": "/other/place",
+ "title": "Other",
+ "time": {
+  "created": 1767261600000,
+  "updated": 1767261600000
+ }
+}

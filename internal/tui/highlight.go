@@ -8,7 +8,7 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 
-	"github.com/Decsr/Decsr-Code/internal/ui"
+	"github.com/Decsr/decsr-tui/internal/ui"
 )
 
 // chromaStyle is the syntax-highlighting palette for the active theme: a light

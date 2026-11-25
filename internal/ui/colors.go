@@ -7,33 +7,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Group names of the slash commands, in display order.
-const (
-	GroupNameSession = "Session"
-	GroupNameRun     = "Run"
-	GroupNameAgents  = "Agents"
-	GroupNameUsage   = "Usage"
-	GroupNameProject = "Project"
-	GroupNamePlugin  = "Plugin commands"
-)
-
-// GroupColor is the colour of a command group; an unknown group is Accent.
-func GroupColor(group string) lipgloss.AdaptiveColor {
-	switch group {
-	case GroupNameSession:
-		return GroupSession
-	case GroupNameRun:
-		return GroupRun
-	case GroupNameAgents:
-		return GroupAgents
-	case GroupNameUsage:
-		return GroupUsage
-	case GroupNameProject:
-		return GroupProject
-	}
-	return Accent
-}
-
 // RunnerColor is the colour of a runner. The empty runner is the default one,
 // opencode; a runner without a colour of its own is Muted.
 func RunnerColor(name string) lipgloss.TerminalColor {

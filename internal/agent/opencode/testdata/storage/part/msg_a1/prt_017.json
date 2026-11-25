@@ -1,0 +1,23 @@
+{
+ "id": "prt_017",
+ "messageID": "msg_a1",
+ "sessionID": "ses_main",
+ "type": "tool",
+ "callID": "call_6",
+ "tool": "bash",
+ "state": {
+  "status": "completed",
+  "input": {
+   "command": "exit 2"
+  },
+  "output": "bad",
+  "title": "exit 2",
+  "metadata": {
+   "exit": 2
+  },
+  "time": {
+   "start": 1767261632000,
+   "end": 1767261632100
+  }
+ }
+}

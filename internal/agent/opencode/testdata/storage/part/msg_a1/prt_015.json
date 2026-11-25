@@ -1,0 +1,25 @@
+{
+ "id": "prt_015",
+ "messageID": "msg_a1",
+ "sessionID": "ses_main",
+ "type": "tool",
+ "callID": "call_4",
+ "tool": "task",
+ "state": {
+  "status": "completed",
+  "input": {
+   "description": "Map the code",
+   "prompt": "look around",
+   "subagent_type": "explore"
+  },
+  "output": "mapped",
+  "title": "Map the code",
+  "metadata": {
+   "sessionId": "ses_child"
+  },
+  "time": {
+   "start": 1767261609000,
+   "end": 1767261630000
+  }
+ }
+}

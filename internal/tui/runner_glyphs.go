@@ -3,7 +3,7 @@ package tui
 import (
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Decsr/Decsr-Code/internal/ui"
+	"github.com/Decsr/decsr-tui/internal/ui"
 )
 
 // Icon sets for ui.icons.

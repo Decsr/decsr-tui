@@ -1,0 +1,14 @@
+{"type":"user","uuid":"u1","timestamp":"2026-01-01T10:00:00Z","cwd":"/work/demo","gitBranch":"main","sessionId":"s1","message":{"role":"user","content":"Fix the bug in x.go\nplease"}}
+{"type":"mode","mode":"normal","somethingNew":{"a":1}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-01-01T10:00:01Z","cwd":"/work/demo","message":{"id":"m1","role":"assistant","model":"claude-opus-4","content":[{"type":"thinking","thinking":"Let me look\nat it"},{"type":"text","text":"I will run the tests."}],"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":20}}}
+{"type":"assistant","uuid":"a2","timestamp":"2026-01-01T10:00:01Z","message":{"id":"m1","role":"assistant","model":"claude-opus-4","content":[{"type":"tool_use","id":"toolu_t1","name":"Bash","input":{"command":"go test ./...\necho done"}}],"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":20}}}
+{"type":"user","uuid":"u2","timestamp":"2026-01-01T10:00:03Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_t1","content":"ok  all passed"}]}}
+{"type":"assistant","uuid":"a3","timestamp":"2026-01-01T10:00:04Z","message":{"id":"m2","role":"assistant","content":[{"type":"tool_use","id":"toolu_t2","name":"Bash","input":{"command":"false","description":"Run failing thing"}}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"user","uuid":"u3","timestamp":"2026-01-01T10:00:05Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_t2","content":"exit status 1","is_error":true}]}}
+{"type":"assistant","uuid":"a4","timestamp":"2026-01-01T10:00:06Z","message":{"id":"m3","role":"assistant","content":[{"type":"tool_use","id":"toolu_t3","name":"Edit","input":{"file_path":"/work/demo/internal/x.go","old_string":"a\nb","new_string":"a\nb\nc\n"}}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"user","uuid":"u4","timestamp":"2026-01-01T10:00:07Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_t3","content":[{"type":"text","text":"edited"}]}]}}
+{"type":"assistant","uuid":"a5","timestamp":"2026-01-01T10:00:08Z","message":{"id":"m4","role":"assistant","content":[{"type":"tool_use","id":"toolu_t4","name":"Agent","input":{"subagent_type":"Explore","description":"Map the code","prompt":"look around","model":"haiku"}}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"assistant","uuid":"a6","timestamp":"2026-01-01T10:00:09Z","message":{"id":"m5","role":"assistant","content":[{"type":"tool_use","id":"toolu_t5","name":"Bash","input":{"command":"sleep 100"}}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"user","uuid":"u5","isMeta":true,"timestamp":"2026-01-01T10:00:10Z","message":{"role":"user","content":"meta noise"}}
+{not valid json
+{"type":"ai-title","aiTitle":"Fix x bug"}

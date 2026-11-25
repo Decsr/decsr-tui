@@ -1,0 +1,24 @@
+{
+ "id": "msg_c1",
+ "sessionID": "ses_child",
+ "role": "assistant",
+ "time": {
+  "created": 1767261609100,
+  "completed": 1767261629000
+ },
+ "modelID": "claude-haiku",
+ "providerID": "anthropic",
+ "path": {
+  "cwd": "/work/demo",
+  "root": "/work/demo"
+ },
+ "tokens": {
+  "input": 7,
+  "output": 3,
+  "reasoning": 0,
+  "cache": {
+   "read": 0,
+   "write": 0
+  }
+ }
+}

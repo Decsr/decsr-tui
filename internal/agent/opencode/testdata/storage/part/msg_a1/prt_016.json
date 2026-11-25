@@ -1,0 +1,21 @@
+{
+ "id": "prt_016",
+ "messageID": "msg_a1",
+ "sessionID": "ses_main",
+ "type": "tool",
+ "callID": "call_5",
+ "tool": "apply_patch",
+ "state": {
+  "status": "completed",
+  "input": {
+   "patchText": "*** Begin Patch\n*** Update File: /work/demo/a.go\n@@\n-old\n+new1\n+new2\n*** Add File: b.go\n+x\n*** End Patch"
+  },
+  "output": "Success",
+  "title": "apply_patch",
+  "metadata": {},
+  "time": {
+   "start": 1767261631000,
+   "end": 1767261631100
+  }
+ }
+}

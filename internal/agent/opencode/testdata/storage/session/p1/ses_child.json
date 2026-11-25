@@ -1,0 +1,12 @@
+{
+ "id": "ses_child",
+ "version": "1.0.0",
+ "projectID": "p1",
+ "directory": "/work/demo",
+ "parentID": "ses_main",
+ "title": "Map the code (@explore subagent)",
+ "time": {
+  "created": 1767261609000,
+  "updated": 1767261630000
+ }
+}

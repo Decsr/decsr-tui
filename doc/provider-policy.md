@@ -45,36 +45,25 @@ Re-read these when a check is unclear or a rule may have changed:
 
 ## Known state
 
-- Interactive Workspace with the user present: pass.
-- Cron automations: guarded (subscription needs `allow_subscription`).
-- Routing in unattended runs: guarded (`routingConnected` drops claude).
-- Refused commands (claude runner): a command is allowed only by the user's
-  key press on its card; no autonomy level and no automation run allows one.
-- Installs from the chat (decsr plugins, `claude plugin install`, `claude mcp
-  add`): pass. Installs: proposed by the lead, run by decsr only after the
-  user's key press; never `-y`; secrets asked hidden and never stored by decsr.
-  The lead only has read-only `claude ... list|get` lookups, workers get no
-  install command, automation runs skip installs, and decsr runs the unmodified
-  `claude` binary through its documented flags.
-- MCP: only nodes the lead marks and the user approves load MCP, claude runner
-  only, tools limited to the named servers, in text and agent mode with the
-  same allow-list limits. decsr runs no MCP server itself, a
-  plan with an MCP node always waits for the user's `y`, and an automation run
-  stops instead of starting it.
-- `/autonomy 3` on a subscription: **open**, it needs a warning or a block.
-- Read-only nodes (role `read_only` or a `writes: false` task): pass. They can
-  read and run read-only shell commands, never edit. claude: fixed allow list
-  plus `--disallowedTools` for write flags and `>`; opencode: a deny-by-default
-  `OPENCODE_CONFIG_CONTENT` permission config (no `--auto`); codex: `read-only`
-  sandbox; dsh: read-only preset; copilot: refused (its `--allow-all-tools`
-  cannot be limited), and routing never picks it.
-- Lead chat: read-only tools, user-started turns only; auto-compact runs only
-  in front of a user-started turn.
-- Plan limits in `/usage` and `/status`: pass. They come only from the
-  `rate_limit_event` lines the claude CLI prints during runs the user started,
-  saved in `~/.decsr/plan-limits.json`. decsr calls no account endpoint, starts
-  no run to refresh them, and nothing schedules, retries or waits based on
-  these numbers.
-- Live text in the node pane: pass. The claude runner adds the documented
-  `--include-partial-messages` flag of the unmodified binary; it changes only
-  how the output stream is cut, not what is sent or run.
+decsr-tui is a git TUI that watches agent sessions. It starts no agent CLI,
+calls no provider API and sends nothing over the network except what git itself
+does when the user presses fetch, pull or push.
+
+- Session watcher: pass. It only reads the session files the agent CLIs write
+  for themselves (claude `~/.claude/projects`, codex `~/.codex/sessions`,
+  opencode `storage/` JSON and `opencode.db`, the SQLite file opened
+  read-only with `query_only`), and starts nothing. Reading files of the user's
+  own account on the user's own machine is ordinary individual use.
+- Login tokens: pass. The watcher never opens `~/.claude/.credentials.json`,
+  codex `auth.json`, opencode `auth.json`, keychain entries or OAuth tokens, and
+  calls no account or usage endpoint. Model names, token counts and times shown
+  in the header and the live view come from the session files only.
+- Limits and automation: pass. Nothing schedules, retries or waits for an agent
+  run. The only timers are local polls of git (about 2 s) and of the session
+  files (500 ms) while the TUI is open.
+- Custom commands (`customCommands` in the config): user-written shell commands
+  run by a key press the user configured. decsr-tui never adds one for an
+  agent, and a command that starts an agent is the user's own action.
+- Tests: pass. `go test` uses fake sources and temporary git repos; no test
+  starts an agent CLI or reads the real `~/.claude`, `~/.codex` or opencode
+  directories.

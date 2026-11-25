@@ -1,404 +1,333 @@
-<p align="center">
-  <img src="doc/assets/banner.svg" alt="DECSR" width="100%">
-</p>
+<h1 align="center">decsr-tui</h1>
 
-<p align="center"><b>Decsr Code</b> — command: <code>decsr</code></p>
+<p align="center"><b>A git client and a live agent watcher in one terminal screen, in the look of <a href="https://github.com/Decsr/Decsr-Code">decsr</a>.</b></p>
 
 <p align="center">
-  <a href="https://github.com/Decsr/Decsr-Code/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Decsr/Decsr-Code?style=flat-square&color=4a86ff&labelColor=0b1426" alt="License"></a>
-  <a href="https://github.com/Decsr/Decsr-Code/releases"><img src="https://img.shields.io/github/v/release/Decsr/Decsr-Code?style=flat-square&color=4a86ff&labelColor=0b1426" alt="Latest Release"></a>
-  <a href="https://github.com/Decsr/Decsr-Code/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Decsr/Decsr-Code/ci.yml?branch=main&label=CI&style=flat-square&labelColor=0b1426" alt="CI"></a>
-  <a href="https://github.com/Decsr/Decsr-Code/blob/main/go.mod"><img src="https://img.shields.io/github/go-mod/go-version/Decsr/Decsr-Code?style=flat-square&color=4a86ff&labelColor=0b1426" alt="Go version"></a>
-  <a href="https://pkg.go.dev/github.com/Decsr/Decsr-Code"><img src="https://img.shields.io/badge/go.dev-reference-4a86ff?style=flat-square&logo=go&logoColor=white&labelColor=0b1426" alt="Go Reference"></a>
-</p>
-
-<p align="center">
-  <a href="#highlights">Highlights</a> ·
+  <a href="#what-it-is">What it is</a> ·
   <a href="#quick-start">Quick start</a> ·
-  <a href="#features">Features</a> ·
+  <a href="#the-screen">The screen</a> ·
   <a href="#keys">Keys</a> ·
-  <a href="#backends">Backends</a> ·
   <a href="#configuration">Configuration</a> ·
-  <a href="#classic-pipeline">Classic pipeline</a> ·
-  <a href="#docs">Docs</a>
+  <a href="#agents-it-watches">Agents</a> ·
+  <a href="#roadmap">Roadmap</a>
 </p>
 
-<p align="center"><img src="doc/assets/divider.svg" width="100%" alt=""></p>
+## What it is
 
-## What is decsr?
+decsr-tui is the git half of a coding session. It shows your working tree,
+branches, commits and stashes next to what a coding agent is doing in the same
+repository, so you can stage the agent's edits, commit them and check its
+progress without leaving the terminal.
 
-`decsr` is a terminal app that runs a team of coding agents on your repository. You describe a task, a lead agent splits it into a graph of sub-tasks and assigns a role to each node, and you approve one plan card. Nodes run in parallel, each in its own git worktree. A final **Build & test** check runs when code changed, then you review the diff and merge it or open a pull request.
+- **Git.** Stage files, hunks and single lines; commit, amend, reword, squash,
+  fixup, drop, move and revert commits; edit an interactive rebase todo;
+  cherry-pick from a clipboard; branches, tags, worktrees, stash, fetch, pull,
+  push, reflog undo and redo; custom commands from the config.
+- **Agents.** Watches claude, codex and opencode sessions of the repository:
+  a live view of the running session, its activity tree with subagents, the
+  edits it made as syntax-coloured diffs, and the files it changed against
+  `HEAD`.
+- **The decsr look.** It uses decsr's design system: the same theme tokens
+  (`auto`, `dark` or `light`), framed panels with tab pills, the `▌` list
+  cursor, runner colours and glyphs, the activity, live and diff renderers, the
+  hint bar and status bar.
 
-Nothing runs until you say so. You can mix Claude, Codex, OpenCode, Copilot, dsh, API models and local models in one task.
-
-<p align="center"><img src="doc/assets/divider.svg" width="100%" alt=""></p>
-
-## Highlights
-
-| | |
-|---|---|
-| **Parallel agents** — every node works in its own git worktree and branch, so agents never overwrite each other. | **Any backend per role** — CLI agents, API providers and local models, each with its own model and effort. |
-| **You stay in control** — nothing runs until you press `r`. Autonomy levels 1-3 and a USD budget let you give more freedom step by step. | **Real code review** — read diffs with syntax highlighting, put notes on lines and send them back to an agent. |
-| **Lean runs** — read-only nodes for questions and reviews, direct answers from the lead, Build & test only when code changed. | **Pull requests and CI** — `/pr` opens the PR, `/pr watch` turns failing CI and review comments into fix nodes. |
-| **Automations** — scheduled, unattended runs with a budget. | **Limits and inbox** — a rate-limited node waits instead of failing, and the inbox lists everything that needs you. |
-
-<p align="center"><img src="doc/assets/divider.svg" width="100%" alt=""></p>
+**decsr-tui never starts an agent.** It only reads the session files the agent
+CLIs write themselves, read-only, and never opens a login or token file. See
+[`doc/provider-policy.md`](doc/provider-policy.md).
 
 ## Quick start
 
-<details>
-<summary><b>1. Install</b></summary>
+decsr-tui is one binary, `decsr-tui`, and works the same on Ubuntu and Windows.
+It needs `git` on the `PATH`. Go 1.26 or newer is needed only for the
+`go install` and from-source routes.
 
-<br>
+The one-line installers download a published release and check its SHA-256
+against the release `checksums.txt`. They work once a `v*` release exists. The
+`go install` and from-source routes work right away.
+
+### Ubuntu
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Decsr/Decsr-Code/main/scripts/install.sh | sh
+sudo apt update && sudo apt install -y git curl    # prerequisites
 ```
 
-The script installs the latest release to `~/.local/bin` (no sudo) after checking its checksum. Set `DECSR_VERSION=v0.7.1` to pin a release or `DECSR_INSTALL_DIR` to change the directory.
+**(a) One-line installer** (installs to `~/.local/bin`; set `DECSR_INSTALL_DIR` or `DECSR_VERSION` to change the directory or the release):
 
-Other options:
+```bash
+curl -fsSL https://raw.githubusercontent.com/Decsr/decsr-tui/main/scripts/install.sh | sh
+```
 
-- **Homebrew** (once the tap is published): `brew install decsr/tap/decsr`
-- **Prebuilt binaries** for Linux, macOS and Windows (amd64/arm64) on the [Releases page](https://github.com/Decsr/Decsr-Code/releases). Unpack and put `decsr` on your `PATH`.
-  On Windows, verify commands run through `sh` when Git for Windows or MSYS2 provides one, otherwise through `cmd.exe`. tmux features are unavailable; WSL2 also works.
-- **go install** (Go 1.26+): `go install github.com/Decsr/Decsr-Code/cmd/decsr@latest`
-- **From source**: see [Build from source](#build-from-source).
+If it says `~/.local/bin` is not on your `PATH`:
 
-You need a git repository to work in and at least one backend (see [Backends](#backends)). [bd (beads)](https://github.com/gastownhall/beads) is recommended for the classic pipeline only.
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+```
 
-</details>
+**(b) `go install`** (needs Go 1.26+; get it from <https://go.dev/dl/>, the apt package is usually older):
 
-1. **Install** with the one-line script above (options are folded in the box).
-2. **Check your setup:** `decsr doctor` checks git, config, runners and API keys, plus optional tools such as `tmux` and `gh`. It prints a fix hint for each problem.
-3. **First run:** if no runner is usable, `decsr` opens a short setup (pick a runner, connect a key, see the doctor result). `Esc` skips it. Open it again any time with `decsr setup`.
-4. **Start:** `cd your-repo && decsr`
-5. **Describe a task** in the prompt and press `Enter`. The lead splits it into nodes.
-6. **Approve the plan:** the lead assigns the roles. One plan card shows the nodes and agents: `y` starts, `e` edits an agent, `a` picks another role, `n` cancels, `Enter` opens a picker with the same choices. A plan that only reads starts at once.
-7. **Watch and steer:** nodes run on their own. Press `d` on a node to see its diff, `r` to run one again. You can keep chatting while they run.
-8. **Finish:** type `/merge` to bring the result into your branch, or `/pr` to open a pull request.
+```bash
+go install github.com/Decsr/decsr-tui/cmd/decsr-tui@latest
+echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc   # once
+```
+
+**(c) From source:**
+
+```bash
+git clone https://github.com/Decsr/decsr-tui.git && cd decsr-tui
+go build -o decsr-tui ./cmd/decsr-tui     # then: sudo install decsr-tui /usr/local/bin/
+# or run without building:  go run ./cmd/decsr-tui
+```
+
+### Windows
+
+Prerequisite: [Git for Windows](https://git-scm.com/download/win), for example
+`winget install --id Git.Git -e`. Use Windows Terminal or any terminal with
+ANSI colours. The commands below are PowerShell.
+
+**(a) One-line installer** (installs to `%LOCALAPPDATA%\Programs\decsr-tui`, adds it to your user `PATH` if missing, needs no admin rights; set `$env:DECSR_INSTALL_DIR` or `$env:DECSR_VERSION` first to change the directory or the release):
+
+```powershell
+irm https://raw.githubusercontent.com/Decsr/decsr-tui/main/scripts/install.ps1 | iex
+```
+
+Open a new terminal afterwards so the `PATH` change takes effect.
+
+**(b) `go install`** (needs Go 1.26+, `winget install --id GoLang.Go -e`):
+
+```powershell
+go install github.com/Decsr/decsr-tui/cmd/decsr-tui@latest
+# once, add %USERPROFILE%\go\bin to your user PATH, then open a new terminal:
+[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path','User') + ";$env:USERPROFILE\go\bin", 'User')
+```
+
+**(c) From source:**
+
+```powershell
+git clone https://github.com/Decsr/decsr-tui.git; cd decsr-tui
+go build -o decsr-tui ./cmd/decsr-tui   # decsr-tui.exe on Windows
+# or run without building:  go run ./cmd/decsr-tui
+```
+
+### Run it
+
+```sh
+cd your-repo && decsr-tui               # the current repository
+decsr-tui /path/to/repo                 # another repository (Windows: C:\src\repo)
+decsr-tui --theme dark                  # auto | dark | light
+decsr-tui --session 3f2a                # open the agent session whose id starts with 3f2a
+decsr-tui --version
+```
+
+### Where it reads and writes
+
+| | Ubuntu | Windows |
+|---|---|---|
+| Config file | `~/.config/decsr-tui/config.yml` | `%AppData%\decsr-tui\config.yml` |
+| claude sessions | `$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects` | `%CLAUDE_CONFIG_DIR%\projects`, else `%USERPROFILE%\.claude\projects` |
+| codex sessions | `$CODEX_HOME/sessions`, else `~/.codex/sessions` | `%CODEX_HOME%\sessions`, else `%USERPROFILE%\.codex\sessions` |
+| opencode data | `$XDG_DATA_HOME/opencode`, else `~/.local/share/opencode` | `%XDG_DATA_HOME%\opencode`, else `%USERPROFILE%\.local\share\opencode` |
+| Editor (`e` key) | `$EDITOR`, `$VISUAL`, then `nano`, `vi` or `vim` | `%EDITOR%`, `%VISUAL%`, then `notepad` |
+| Custom commands | run with `sh -c` | run with `cmd /C` |
+
+`$DECSR_TUI_CONFIG` or `--config` override the config path. Paths on Linux are
+case-sensitive; on Windows and macOS they compare case-insensitively.
+
+## Usage
 
 ```text
- Add JSON output to the vers…  │  Activity · g graph
- 2/5 · 1 failed                │  You  17:00
- ✓ T1 Parse the --json flag    │    add a --json flag to the version command
-    ⬡ claude:sonnet        2m  │  ╭────────────────────────────────────────╮
- ! T3 Tests for --json         │  │ ✓ T1 Parse the --json flag    17:01 ↗ │
-    ⬡ claude:sonnet    failed  │  │ Worked for 1m 10s                      │
- ? T4 Document the flag        │  │ Edited cmd/version.go           +18 −2 │
-    → docs                     │  ╰────────────────────────────────────────╯
- Sessions                      │
- ○ Refactor config loader  3/3 │  ╭────────────────────────────────────────╮
-                               │  │ Type a task, / for commands            │
-                               │  ╰────────────────────────────────────────╯
+decsr-tui [--session <id-prefix>] [--config <file>] [--theme auto|dark|light] [--version] [repo-dir]
 ```
 
-The sidebar (from 100 columns) lists nodes and saved sessions. The feed shows one card per node. The prompt is at the bottom. Press `g` to switch the feed to the node graph.
+| Flag | Meaning |
+|---|---|
+| `--session <id>` | Open the agent session whose id starts with this, focused. |
+| `--config <file>` | Config file. Default: `$DECSR_TUI_CONFIG`, else `<user config dir>/decsr-tui/config.yml`. |
+| `--theme <mode>` | `auto` (ask the terminal), `dark` or `light`. Overrides the config. |
+| `--version` | Print the version and exit. |
 
-<p align="center"><img src="doc/assets/divider.svg" width="100%" alt=""></p>
+## The screen
 
-## Features
+```text
+◆ decsr · myrepo  main ↑2 ↓1  REBASING                         ▘ ✳ claude · Fix the login bug
+╭─ 1 Files · 3 ──────────────╮╭─ Diff a.go ───────────────────────────────────────────────╮
+│ ▌ M  a.go                  ││ Unstaged changes                                          │
+│    M  b.go                 ││ ── a.go ─────────────────────────────────────── +2 −1 ── │
+│                            ││           @@ -10,6 +10,7 @@                               │
+╰────────────────────────────╯│   10  10   func login() {                                 │
+╭─ 2 Branches · Local ───────╮│   11      -	return nil                                    │
+│ ▌* main                    ││       11 +	return check()                                │
+╰────────────────────────────╯╰───────────────────────────────────────────────────────────╯
+ ● idle    ▸ git add -A
+  space stage/unstage · a stage/unstage all · enter staging view · c commit · ? help · q quit
+```
 
-### Workspace and graph
+(The other panels, Commits, Stash and Agent, sit under Branches.)
 
-The Workspace is a chat with the lead. It answers your questions itself, reading the project with read-only tools (it never edits files), and splits work you assign into nodes with titles, dependencies, a role and a `writes` flag. One lead conversation per session is resumed turn by turn; `/compact [focus]` summarizes it, `/clear` starts over, and `workspace.auto_compact` compacts it before a message when it nears the context limit. See [The lead chat](doc/workspace.md#the-lead-chat). Up to 3 nodes run at once. A last **Build & test** node runs your language's build and test commands (C and C++ projects use `CMakePresets.json`; set `project.build_cmd` and `project.test_cmd` to replace them). It runs only when code changed, otherwise it ends as `skipped · nothing changed`; `/check` runs it anyway. In a git repository every node gets its own worktree. Set `workspace.isolation: shared` to work in your checkout instead. See [Workspace](doc/workspace.md#flow) and [Build & test](doc/workspace.md#build--test-and-fix-nodes).
-
-### Lean runs and plan card
-
-A question or review is one read-only node, and the lead answers simple questions itself in the chat. Read-only plans start at once; a plan that writes waits on one plan card (`y` start, `e` edit agent, `a` pick role, `n` cancel, `Enter` picker). One-shot calls run without tools and with trimmed prompts, so they use fewer tokens. See [Lean runs](doc/workspace.md#lean-runs) and [Approval](doc/workspace.md#approval).
-
-### Roles and backends
-
-A role is a name, a description, a runner, a model and an effort. Seven built-in roles exist (`pm`, `coder`, `coder_fixer`, `qa`, `ux_reviewer`, `security`, `reviewer`) and you can add your own under `agents:`. Use `mode: agent` to let a CLI agent edit files with its own tools, or `mode: text` to let decsr write the files. `read_only: true` makes a role report only (`reviewer` is read-only). See [Roles](doc/workspace.md#roles) and [Agent mode](doc/workspace.md#agent-mode).
-
-### Review and merge
-
-`d` shows a node's diff and `D` the whole session. `c` adds a note to a line and `S` sends your notes to the agent as a new node. `!` opens a shell in the node's worktree. `/merge` merges the session branch. `/pr` pushes it and opens a pull request with `gh`. `/pr watch` turns failing CI and review comments into fix nodes. See [Diff and review notes](doc/workspace.md#diff-and-review-notes) and [Pull requests](doc/workspace.md#pull-requests).
-
-### Autonomy, coordinator and budgets
-
-Level 1 (default) runs nothing by itself. Level 2 approves the plan, runs everything and adds fix nodes after a failed Build & test. Level 3 also opens and watches the pull request, and needs a budget. Automation never merges. Turn on the coordinator and the lead reviews each finished batch. Set a budget and decsr warns at 80% and stops starting nodes at the limit. See [Autonomy levels](doc/workspace.md#autonomy-levels), [Coordinator mode](doc/workspace.md#coordinator-mode) and [Cost and budget](doc/workspace.md#cost-and-budget).
-
-### Reply to nodes and node reports
-
-Type `@T3 your message` (or press `m` on a node) to start a new attempt of that node. It resumes the node's own CLI conversation (claude, codex, opencode, dsh), or starts fresh with an excerpt when that is not possible. Every node ends with a report and the run ends with a summary. A node that asks a question shows a card with options and a recommendation; a refused command shows a card with allow for this node, always, or no. A node can suggest follow-ups (`y` plans them). Every choice card takes `↑` `↓` and `Enter`, or its number; the lead asks you to choose with the same card. See [Reply to a node](doc/workspace.md#reply-to-a-node), [Question cards](doc/workspace.md#question-cards), [Refused commands](doc/workspace.md#refused-commands), [Run summary](doc/workspace.md#run-summary) and [Suggested follow-ups](doc/workspace.md#suggested-follow-ups).
-
-### Chatting while nodes run
-
-You can type a new task while nodes run. The lead sees the live graph, may change or cancel nodes that have not started, and may send a note to a running node (queued until its attempt ends). The plan card shows one line per change with its reason; running nodes are never stopped. See [Chatting while nodes run](doc/workspace.md#chatting-while-nodes-run).
-
-### Automations and notifications
-
-`.decsr/automations.yaml` defines scheduled runs with a task or an issue query, autonomy 2 or 3 and a budget. `decsr automation install` writes the crontab lines. When something needs you, decsr can ring the bell, send a desktop notification or post to an ntfy, Slack or Discord webhook. A node that hits a provider limit waits until the reset and retries (autonomy 2 and 3). See [Automations](doc/automations.md), [Notifications](doc/workspace.md#notifications) and [Usage limits](doc/workspace.md#usage-limits).
-
-### Sessions, profiles and extensions
-
-Each project keeps its sessions in `.decsr/sessions/`. `decsr resume` or `/resume` continues one, `/clear` starts a new one and `/compact` folds finished nodes into a summary. `/model profile` saves your role settings for any project. Markdown files in `.decsr/commands/` and `.decsr/skills/` add your own commands and skills. Claude-format plugins add commands, skills and roles; `/plugin` is a manager with the tabs Installed, Discover, Marketplaces (asks for trust on first install) and Stats; it can also import plugins from Claude Code. Ask the lead in the chat to install a plugin or an MCP server (decsr plugin, Claude Code plugin or MCP server for the claude runner): decsr shows a card with the exact command and runs it only after your `y`, never with `-y`, and asks secrets in a hidden input it does not store. See [Sessions](doc/workspace.md#sessions), [Profiles](doc/workspace.md#profiles), [Custom commands and skills](doc/workspace.md#custom-commands-and-skills), [Plugins](doc/workspace.md#plugins) and [Installing from the chat](doc/workspace.md#installing-from-the-chat).
-
-### Issues and Spec Kit import
-
-`/issue <N|URL|bead-id>` (or `decsr issue <ref>`) sends a GitHub issue or a bead to the lead as the task, and the pull request says `Closes #N`. `/import speckit` adds the open tasks of a Spec Kit `tasks.md` to the graph and ticks them off as nodes finish. See [Start from an issue](doc/workspace.md#start-from-an-issue) and [Import from Spec Kit](doc/workspace.md#import-from-spec-kit).
-
-### Look and feel
-
-Messages in the feed are rendered as Markdown (switch off with `ui.markdown: false`). Diffs are syntax-highlighted. The theme follows your terminal, or set `ui.theme: dark` or `light`. The sidebar shows `● 3 need you`, `N` opens the inbox and `Ctrl+K` opens a palette to search commands, nodes, sessions and projects. See [Themes](doc/tui.md#themes) and [Inbox](doc/workspace.md#inbox).
-
-<p align="center"><img src="doc/assets/divider.svg" width="100%" alt=""></p>
+- **Header.** The decsr mark, the repository, a branch chip, ahead and behind,
+  a `MERGING` or `REBASING` chip and a running `fetch`, `pull` or `push`. On the
+  right, the agent chip: the live session in its runner's colour with a spinner
+  while it works, or the last watched session dimmed.
+- **Panels.** Five framed panels on the left; the focused one is open in its
+  group colour and the others shrink to one row. Branches has the tabs
+  `Local | Remotes | Tags | Worktrees`; the Agent panel has `Activity |
+  Changes` once a session is open.
+- **Main pane.** Follows the selection: diffs (syntax-coloured, with a
+  line-number gutter), commit details, a branch log, the staging view, the
+  rebase todo, or for the Agent panel the live view, the selected activity
+  (messages as Markdown, edits as diffs) or the session's changes.
+- **Status bar and hint bar.** The state and the last command-log line, then
+  the keys of the focused panel.
+- **Narrow terminals.** Below 60 columns it is one column: the focused panel,
+  or the main pane while it has focus. `Esc` goes back.
 
 ## Keys
 
-With the prompt focused, every printable key is text. `Tab` moves focus between the prompt, sidebar and main pane. In the sidebar or main pane:
+`?` shows the keys of the focused panel and the global ones; `x` opens them as
+a menu.
+
+### Global
 
 | Key | Action |
 |---|---|
-| `a` | Pick a role for the node |
-| `r` / `R` | Run the node / run all startable nodes |
-| `s` / `S` | Stop the node / stop all |
-| `d` / `D` | Diff of the node / of the whole session |
-| `m` | Reply to the node |
-| `f` | Add a fix node after a failed Build & test |
-| `o` or `Enter` | Open the node's full output |
-| `Space` | Expand or collapse a card |
-| `!` | Shell in the node's worktree |
-| `g` | Switch between Activity and Graph |
-| `N` | Inbox: what needs you |
-| `Ctrl+K` | Go-to palette (works everywhere) |
-| `?` | Help (empty prompt) |
-| `q` | Quit |
+| `tab`, `l`, `→` / `shift+tab`, `h`, `←` | Next / previous panel |
+| `1`–`5` | Jump to a panel |
+| `j`/`k`, `↑`/`↓`, `J`/`K`, `home`, `G` | Move, page, top, bottom |
+| `ctrl+d`, `ctrl+u`, `pgdn`, `pgup` | Scroll the main pane |
+| `/` | Filter the focused list |
+| `f`, `p`, `P` | Fetch, pull, push (`esc` cancels a running one) |
+| `z`, `Z` | Undo, redo through the reflog |
+| `m` | Continue or abort a merge or rebase |
+| `R` | Refresh |
+| `@` | Show or hide the command log |
+| `x`, `?`, `q` | Action menu, help, quit |
 
-In the diff view: `c` adds a note, `x` deletes it, `S` sends the notes, `n`/`p` jump between hunks.
+### Files
 
-Slash commands come in five groups, in colour. `/` lists them, `/help <command>` shows the forms of one. Most open a panel.
-
-| Group | Commands |
+| Key | Action |
 |---|---|
-| **Session** | `/help`, `/clear`, `/compact`, `/resume`, `/rename`, `/export`, `/copy`, `/quit` |
-| **Run** | `/answer` (show the open question or refused command), `/check` (run Build & test now), `/stop [node]`, `/retry <node>`, `/merge`, `/diff`, `/pr [watch\|stop]` |
-| **Agents** | `/roles`, `/model` (`rank`, `profile save\|apply`), `/routing`, `/autonomy 1\|2\|3`, `/coordinator on\|off\|now` |
-| **Usage** | `/usage` (`cost`, `budget [amount\|off]`), `/status`, `/context` |
-| **Project** | `/project`, `/config`, `/provider` (`add`, `remove`, `test`), `/memory`, `/doctor`, `/plugin`, `/issue`, `/import speckit`, `/menu` |
+| `space` | Stage or unstage the file or folder |
+| `a` | Stage or unstage everything |
+| `enter` | Open the staging view (folder: collapse) |
+| `d` | Discard (menu: unstaged only, or everything) |
+| `c`, `A` | Commit, amend |
+| `s`, `S` | Stash, stash options |
+| `e` | Edit in `$EDITOR` (then `$VISUAL`, `notepad` on Windows, else `nano`, `vi` or `vim`) |
+| `` ` `` | Tree or flat list |
 
-Plans, questions and refused commands are answered with `y` / `n` on their card. Commands from plugins and `.decsr/commands/` are listed in their own group.
+**Staging view.** `j`/`k` move the cursor, `space` stages or unstages the
+selection, `a` switches between hunk and line mode, `v` starts a line range,
+`tab` switches between the unstaged and the staged diff, `d` discards, `esc`
+leaves. The selected hunk or lines are marked in the diff.
 
-Full key reference: [Workspace keys](doc/workspace.md#keys) and [Commands](doc/workspace.md#commands).
+### Branches
 
-<p align="center"><img src="doc/assets/divider.svg" width="100%" alt=""></p>
+| Key | Action |
+|---|---|
+| `[` / `]` | Previous / next tab |
+| `space` | Check out (tag: detached; worktree: switch to it) |
+| `n`, `d`, `R` | New, delete, rename |
+| `M`, `r`, `u` | Merge into current, rebase onto, set upstream |
+| `P` (Tags) | Push the tag |
+| `p` (Worktrees) | Prune |
+| `enter` | Log of the branch in the main pane |
 
-## Backends
+### Commits
 
-| Runner | Kind | Agent mode | Notes |
-|---|---|---|---|
-| `claude` | CLI | yes | Claude CLI. Worker runs are lean: they skip your global MCP servers and plugins. Set `mcp: true` on a role to keep them, or let the lead mark a node with the MCP servers it needs: that node (after your `y` on the plan card) loads your servers and may use only the named ones. |
-| `codex` | CLI | yes | Codex CLI. |
-| `opencode` | CLI | yes | OpenCode. The default runner. |
-| `copilot` | CLI | no | GitHub Copilot CLI. |
-| `dsh` | CLI | yes | DeepSeek Harness CLI (headless profile). Needs `dsh` on `PATH` and `DEEPSEEK_API_KEY` or a key saved with `decsr connect deepseek`. |
-| `deepseek` | API | no | Preset. Key: `DEEPSEEK_API_KEY`. |
-| `openai` | API | no | Preset. Needs `model`. Key: `OPENAI_API_KEY`. |
-| `openrouter` | API | no | Preset. Key: `OPENROUTER_API_KEY`. |
-| `groq` | API | no | Preset. Key: `GROQ_API_KEY`. |
-| `openai` + `base_url` | API | no | Any OpenAI-compatible endpoint (Together, a gateway). |
-| `ollama` | Local | no | `http://127.0.0.1:11434` |
-| `lmstudio` | Local | no | `http://127.0.0.1:1234` |
-| `mlx` | Local | no | oMLX on Apple Silicon, `http://127.0.0.1:8000` |
+| Key | Action |
+|---|---|
+| `enter` | Files of the commit (`esc` back) |
+| `r`, `s`, `f`, `d` | Reword, squash into the one below, fixup, drop |
+| `ctrl+j`, `ctrl+k` | Move the commit down or up |
+| `e`, `i` | Edit (stop at it), interactive rebase todo |
+| `A`, `F` | Amend with staged changes, fixup commit |
+| `g`, `t` | Reset, revert |
+| `C`, `V` | Copy for cherry-pick, paste |
+| `ctrl+g` | Graph view |
 
-API and local runners answer in text mode (plain chat, no tools). Agent mode needs `claude`, `opencode`, `codex` or `dsh`.
+Rebase todo: `p r s f d e` set the action, `ctrl+j`/`ctrl+k` move the row,
+`enter` starts, `esc` cancels.
 
-Connect an API provider once and decsr keeps the key (also `/provider add` in the Workspace):
+### Stash
 
-```bash
-decsr connect deepseek              # asks for the key (hidden), tests it, saves it
-echo "$KEY" | decsr connect groq    # or pipe the key
-decsr connect --list                # saved providers with masked keys
-decsr disconnect deepseek           # delete a saved key
-```
+`space` apply, `g` pop, `d` drop.
 
-### Using the claude runner
+### Agent
 
-The `claude` runner starts your own, unmodified `claude` CLI headlessly. It uses whatever login that CLI already has; decsr never reads or stores Claude credentials. The full checklist is in [`doc/provider-policy.md`](doc/provider-policy.md). Use it the way you use `claude` yourself: in a session you started and are present for. Unattended runs (cron automations) should use an API key (`ANTHROPIC_API_KEY`, or Bedrock, Vertex or Foundry), because Anthropic's [Consumer Terms](https://www.anthropic.com/legal/consumer-terms) (section 3) do not allow automated access through a subscription login, and the advertised Pro, Max and Ultra [usage limits](https://code.claude.com/docs/en/legal-and-compliance) assume ordinary, individual usage. So on a subscription login decsr refuses to run automations that use `claude` unless the automation sets `allow_subscription: true`, asks you to confirm `decsr automation install` (`--yes` skips the question), and does not retry a node by itself after a usage limit (press `r`; `workspace.limit_auto_retry` overrides this). `decsr doctor` shows the login mode in its `claude auth` line. `/usage` shows your plan limits (5-hour and weekly use) the way claude's own `/usage` does, from the `rate_limit_event` lines the CLI prints during a run, saved in `~/.decsr/plan-limits.json`; decsr never calls an account endpoint to get them.
+| Key | Action |
+|---|---|
+| `enter` | Open a session; later expand a subagent or focus the main pane |
+| `space` | Expand or collapse a subagent |
+| `f` | Follow the newest activity (shows the live view) |
+| `G` | Jump to the newest row and follow |
+| `c` | Switch between Activity and Changes |
+| `[` / `]` | Previous / next file in Changes |
+| `esc` | Back to the session list |
 
-### Model rankings
-
-`decsr connect artificialanalysis` saves an [Artificial Analysis](https://artificialanalysis.ai) key (it is a data source, not a provider, so it never appears as a runner). `decsr models rank` then fetches the rankings once, saves them to `~/.decsr/rankings.json` and prints every model and effort sorted by a balance score (intelligence 50%, cost per task 30%, time per task 10%, context 10%; change the shares with `routing.weights`). `--json` prints the same as JSON. `/model rank` does the same in the Workspace and shows the table in a scrollable view. Nothing is fetched unless you run one of them; the free tier allows 100 requests a day and the output says how many were used. Efforts without a measured row are estimated and marked `~`. With no key, the built-in relative tiers are shown. AA names that match no runner model are listed; add `routing.aliases` (`"AA name": "runner/model"`) to map them, and `routing.fallback` to edit the tiers.
-
-Data: Artificial Analysis (artificialanalysis.ai)
-
-Keys are saved in `~/.decsr/credentials.json` (mode `0600`) and never written to a yaml config. The environment variable wins over a saved key. See [Connect a provider](doc/workspace.md#connect-a-provider).
-
-Each role can use a different runner, model, effort and mode:
-
-```yaml
-agents:
-  coder:
-    runner: claude
-    model: sonnet
-    effort: high
-    mode: agent
-    mcp: true            # keep my own MCP servers for this role (claude only)
-  qa:
-    runner: deepseek
-    model: deepseek-v4-flash
-  docs:
-    runner: openai       # custom OpenAI-compatible endpoint
-    base_url: https://openrouter.ai/api/v1
-    api_key_env: OPENROUTER_API_KEY
-    model: deepseek/deepseek-chat
-```
-
-Effort levels depend on the model (for example `low`, `medium`, `high`, `xhigh`, `max`). `effort: default` leaves the choice to the provider.
-
-<p align="center"><img src="doc/assets/divider.svg" width="100%" alt=""></p>
+Moving up with `k` switches follow off; then the main pane shows the selected
+activity instead of the live view.
 
 ## Configuration
 
-Three layers, later ones win:
-
-1. Built-in defaults (the project language is detected from marker files).
-2. Global user config: `~/.decsr/config.yaml`.
-3. Project config: `.decsr/project.yaml`.
+A YAML file at `<user config dir>/decsr-tui/config.yml` (or `--config`, or
+`$DECSR_TUI_CONFIG`). A missing file means the defaults.
 
 ```yaml
-workspace:
-  autonomy: 1          # 1 manual | 2 assisted | 3 unattended
-  budget_usd: 5        # stop starting nodes at this spend (needs pricing:)
-  coordinator: false   # lead reviews each finished batch
-  isolation: ""        # "worktree", "shared" or empty for auto
-ui:
-  theme: auto          # auto | dark | light
-  markdown: true       # false turns Markdown rendering off
-  tmux: false          # true makes plain `decsr` run in tmux
-notifications:
-  webhook: https://ntfy.sh/<your-topic>
-  webhook_format: ntfy # ntfy | slack | discord
+theme: auto            # auto | dark | light
+refresh:
+  gitSeconds: 2        # git status poll
+  agentMillis: 500     # session file poll
+agents: [claude, codex, opencode]   # which agents to watch
+
+customCommands:
+  - key: "X"
+    context: files          # files | branches | commits | stash | tags | worktrees | agent | global
+    description: "Run tests"
+    command: "go test ./..."
+    output: popup           # log (default) | popup | terminal
+  - key: "Y"
+    context: commits
+    description: "Show a commit"
+    command: "git show {{.SelectedCommit}} --stat"
+    confirm: true           # show the command and ask first
+    prompts:
+      - { name: "msg", title: "Message" }   # read as {{index .Form "msg"}}
 ```
 
-Run `decsr --tmux` to keep decsr alive when the terminal closes. `decsr ls` lists running sessions and `decsr attach` comes back. Details: [Detached runs](doc/workspace.md#detached-runs).
+Command templates can use `.SelectedFile`, `.SelectedCommit`,
+`.SelectedBranch`, `.SelectedTag`, `.SelectedWorktree`, `.CheckedOutBranch`,
+`.RepoDir` and `.Form`, and the `quote` function for shell quoting. Custom keys
+show up in `?` and in the `x` menu.
 
-<p align="center"><img src="doc/assets/divider.svg" width="100%" alt=""></p>
+## Agents it watches
 
-## Classic pipeline
+| Agent | Read from | Status |
+|---|---|---|
+| claude | `$CLAUDE_CONFIG_DIR/projects` or `~/.claude/projects` | Verified on real session files |
+| opencode | `$XDG_DATA_HOME/opencode` or `~/.local/share/opencode` (`opencode.db`, read-only, and the older `storage/` JSON) | Verified on real data (1.19.x) |
+| codex | `$CODEX_HOME/sessions` or `~/.codex/sessions` | Written from the upstream rollout format, not yet checked on real files |
 
-The original pipeline is still available from the Home launcher (`/config` in the Workspace, then Classic pipeline). It runs **Context → Spec → Plan → Tests → Implement → Build/Fix → Review → Done** with human approval gates before any code is written. You can also start it from the command line:
+Sessions are matched to the repository by their working directory. decsr-tui
+reads them read-only and starts nothing: no agent run, no login, no network
+call. Set `agents:` in the config to watch fewer.
 
-```bash
-decsr task --description "Add JWT auth to the login endpoint"                 # TUI
-decsr task --description "Add JWT auth to the login endpoint" --ui plain      # headless, for CI
-decsr task --from-file task.md
-decsr task --description "..." --branch feat/my-feature
-decsr run --requirements requirements.md                                      # legacy greenfield
-```
+## Roadmap
 
-<p align="center">
-  <img src="doc/assets/pipeline.svg" alt="Pipeline: context, negotiate, decompose, tests, code, build/fix, review, done" width="100%">
-</p>
-
-<details>
-<summary><b>Approval gates and agents</b></summary>
-
-<br>
-
-The pipeline pauses for your approval before any code is written:
-
-- **Repository context pack** — the PM writes a compact briefing (`.decsr/context_pack.md`) with a section you can edit. See [`doc/context-pack.md`](doc/context-pack.md).
-- **Task spec** — title, scope and description negotiated with the PM.
-- **Execution plan** — the decomposition into sub-tasks (`task_plan.md`), pre-reviewed by Security and QA.
-
-Agents: **PM** (spec, plan, arbitration), **Coder** (code, builds, tests), **QA** (tests first, code review), **UX Reviewer** (UX/UI review) and **Security** (audit).
-
-</details>
-
-<details>
-<summary><b>How the pipeline works</b></summary>
-
-<br>
-
-1. **Collect context** — scans the project and recalls relevant fragments from project memory.
-2. **Compact context** *(human gate)* — the PM writes the context pack; you edit and approve it.
-3. **Negotiate** *(human gate)* — the PM turns your request into a task spec; you approve or revise it in chat.
-4. **Decompose** *(human gate)* — the PM splits the spec into ordered sub-tasks, pre-reviewed by Security and QA, rendered to `task_plan.md`. Sub-tasks are tracked as beads, so the run is resumable.
-5. **Implement and review loop** *(autonomous, capped)*:
-   - **A. Tests first:** QA writes tests for all sub-tasks.
-   - **B. Implement:** the Coder implements each sub-task.
-   - **C. Build, test, fix:** one project-wide loop.
-   - **D. Quality review:** QA, UX Reviewer and Security review. The PM arbitrates; must-fix issues become new beads and the loop restarts.
-6. **Finalize** — writes a summary and `nice_to_have.md`, updates memory and closes the beads.
-
-An interrupted run can be resumed without re-negotiating.
-
-</details>
-
-<details>
-<summary><b>Project memory</b></summary>
-
-<br>
-
-Project facts live as Markdown in `.decsr/memory/`: `MEMORY.md` (pinned facts added to every prompt), daily logs and per-task summaries. They are indexed locally for search. See [`doc/memory.md`](doc/memory.md).
-
-```bash
-decsr memory show
-decsr memory search "JWT auth"
-decsr memory add "Use sqlc for typed queries"
-```
-
-</details>
-
-<p align="center"><img src="doc/assets/divider.svg" width="100%" alt=""></p>
-
-## Docs
-
-- [`doc/workspace.md`](doc/workspace.md) — Workspace: graph, sessions, profiles, commands, roles, keys, review, PRs
-- [`doc/provider-policy.md`](doc/provider-policy.md) — rules for agent CLIs and provider APIs
-- [`doc/automations.md`](doc/automations.md) — scheduled, unattended runs
-- [`doc/tui.md`](doc/tui.md) — classic pipeline cockpit, keys and themes
-- [`doc/memory.md`](doc/memory.md) — project memory
-- [`doc/context-pack.md`](doc/context-pack.md) — context pack format and configuration
-- [`doc/roadmap.md`](doc/roadmap.md) — what was built, phase by phase
-
-## Build from source
-
-You need Go 1.26+, `git` and `make`, plus at least one backend (see [Backends](#backends)).
-
-```bash
-git clone https://github.com/Decsr/Decsr-Code.git
-cd Decsr-Code
-make build          # builds ./bin/decsr
-```
-
-Run it from the repository you want agents to work on:
-
-```bash
-cd /path/to/your-repo
-/path/to/Decsr-Code/bin/decsr
-```
-
-Or install it so `decsr` works from anywhere:
-
-```bash
-make install                              # installs to $(go env GOPATH)/bin, usually ~/go/bin
-export PATH="$PATH:$(go env GOPATH)/bin"  # if that directory is not on PATH yet
-decsr doctor                              # check git, config, runners and keys
-decsr
-```
-
-To update, pull and install again. Pulling alone does not change the installed binary:
-
-```bash
-git pull && make install
-```
+- Check the codex watcher against real rollout files.
+- A side-by-side diff mode and word-level highlights inside changed lines.
+- Per-panel width settings and a user-set minimum width for the split layout.
+- Token usage and cost trend in the live view.
+- More watchers (copilot, dsh) once their session formats are verified.
 
 ## Development
 
-```bash
-make build      # build bin/decsr
-make test       # run the test suite
-make lint       # vet and lint
+```sh
+go vet ./...
+go test -count=1 ./...
+go build -o decsr-tui ./cmd/decsr-tui   # decsr-tui.exe on Windows
 ```
 
-`make demo` records a terminal demo with [vhs](https://github.com/charmbracelet/vhs) from [`doc/demo.tape`](doc/demo.tape).
-
-<p align="center"><img src="doc/assets/divider.svg" width="100%" alt=""></p>
-
-<p align="center">
-  <a href="LICENSE">MIT</a> © DECSR<br>
-  <sub>✦ built in the terminal ✦</sub>
-</p>
+Tests use fakes and temporary git repositories; none starts an agent or reads
+the real agent directories. The UI is built from `internal/ui` (decsr's theme
+tokens and components) and `internal/tui` (the screen). See
+[`doc/tui.md`](doc/tui.md) for the screen reference.

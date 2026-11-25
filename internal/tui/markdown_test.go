@@ -74,17 +74,6 @@ func TestRenderMarkdownNeverExceedsWidth(t *testing.T) {
 	}
 }
 
-func TestFeedMessageUsesMarkdownWhenWide(t *testing.T) {
-	wide := ansi.Strip(strings.Join(renderFeedMsg("lead", "# Title\n\n- one", feedT0, 80), "\n"))
-	if strings.Contains(wide, "#") || !strings.Contains(wide, "• one") {
-		t.Errorf("wide message not rendered as markdown: %q", wide)
-	}
-	narrow := ansi.Strip(strings.Join(renderFeedMsg("lead", "# Title\n\n- one", feedT0, 40), "\n"))
-	if !strings.Contains(narrow, "# Title") {
-		t.Errorf("narrow message should stay plain: %q", narrow)
-	}
-}
-
 func TestRenderMarkdownLinesAreSelfContained(t *testing.T) {
 	trueColor(t)
 	lines, ok := renderMarkdown(mdSample, 80)

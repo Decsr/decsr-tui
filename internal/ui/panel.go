@@ -20,6 +20,7 @@ func NoColor() bool { return lipgloss.ColorProfile() == termenv.Ascii }
 type PanelOpts struct {
 	Title            string
 	Color            lipgloss.TerminalColor // border, title and header colour: the group colour
+	TitleColor       lipgloss.TerminalColor // title and active tab pill; nil = Color (a dimmed panel keeps a readable title)
 	Tabs             []string
 	Active           int      // index of the active tab
 	Filter           string   // the filter line shows when this is not empty
@@ -68,21 +69,57 @@ func Panel(o PanelOpts) string {
 	if pw < 12 {
 		return ""
 	}
+	return drawPanel(o, pw, PanelRows(o), o.ScreenH > 0)
+}
+
+// PanelSized draws the Panel look at an explicit outer size w x h, for a
+// screen that splits itself into several framed panes. Short bodies are padded
+// with blank rows and long ones scroll like in Panel (o.Scroll is the first
+// visible row; PanelBodyRows says how many rows the body gets). It returns ""
+// below 12 x 3 cells.
+func PanelSized(o PanelOpts, w, h int) string {
+	if o.Color == nil {
+		o.Color = Accent
+	}
+	if w < 12 || h < 3 {
+		return ""
+	}
+	return drawPanel(o, w, PanelBodyRows(o, h), true)
+}
+
+// PanelBodyRows is the number of body rows a PanelSized of outer height h
+// shows: h minus the border, the tab bar, the filter line and the Foot rows
+// (at least one).
+func PanelBodyRows(o PanelOpts, h int) int {
+	head := 0
+	if len(o.Tabs) > 0 {
+		head++
+	}
+	if o.Filter != "" {
+		head++
+	}
+	return max(h-2-head-len(o.Foot), 1)
+}
+
+func drawPanel(o PanelOpts, pw, rows int, padRows bool) string {
+	tc := o.TitleColor
+	if tc == nil {
+		tc = o.Color
+	}
 	inner := pw - 4
 	var head []string
 	if len(o.Tabs) > 0 {
-		head = append(head, tabBar(o.Tabs, o.Active, o.Color))
+		head = append(head, tabBar(o.Tabs, o.Active, tc))
 	}
 	if o.Filter != "" {
 		head = append(head, fg(Muted).Render("/ ")+fg(Text).Render(o.Filter)+fg(Accent).Render("▏"))
 	}
-	rows := PanelRows(o)
 	first := PanelWindow(o.Scroll, len(o.Body), rows)
 	body := o.Body[first:min(first+rows, len(o.Body))]
 
 	bs := fg(o.Color)
 	var out []string
-	out = append(out, panelTop(o, pw, first, rows, len(o.Body)))
+	out = append(out, panelTop(o, tc, pw, first, rows, len(o.Body)))
 	row := func(s string) string { return bs.Render("│") + " " + fit(s, inner) + " " + bs.Render("│") }
 	for _, l := range head {
 		out = append(out, row(l))
@@ -90,7 +127,7 @@ func Panel(o PanelOpts) string {
 	for _, l := range body {
 		out = append(out, row(l))
 	}
-	if o.ScreenH > 0 {
+	if padRows {
 		for i := len(body); i < rows; i++ {
 			out = append(out, row(""))
 		}
@@ -141,7 +178,7 @@ func tabBar(tabs []string, active int, color lipgloss.TerminalColor) string {
 	return strings.Join(parts, " ")
 }
 
-func panelTop(o PanelOpts, pw, first, rows, total int) string {
+func panelTop(o PanelOpts, tc lipgloss.TerminalColor, pw, first, rows, total int) string {
 	bs := fg(o.Color)
 	label := " " + Truncate(o.Title, max(pw-8, 1)) + " "
 	right := ""
@@ -152,7 +189,7 @@ func panelTop(o PanelOpts, pw, first, rows, total int) string {
 	if fill < 0 {
 		right, fill = "", max(pw-3-ansi.StringWidth(label), 0)
 	}
-	return bs.Render("╭─") + lipgloss.NewStyle().Foreground(o.Color).Bold(true).Render(label) +
+	return bs.Render("╭─") + lipgloss.NewStyle().Foreground(tc).Bold(true).Render(label) +
 		bs.Render(strings.Repeat("─", fill)) + fg(Muted).Render(right) + bs.Render("╮")
 }
 

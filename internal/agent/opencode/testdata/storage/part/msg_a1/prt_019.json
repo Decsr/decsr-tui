@@ -1,0 +1,7 @@
+{
+ "id": "prt_019",
+ "messageID": "msg_a1",
+ "sessionID": "ses_main",
+ "type": "future-part",
+ "foo": 1
+}

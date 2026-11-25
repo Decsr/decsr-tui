@@ -1,0 +1,21 @@
+{
+ "id": "prt_013",
+ "messageID": "msg_a1",
+ "sessionID": "ses_main",
+ "type": "tool",
+ "callID": "call_2",
+ "tool": "bash",
+ "state": {
+  "status": "error",
+  "input": {
+   "command": "false",
+   "description": "Run failing thing"
+  },
+  "error": "exit status 1",
+  "metadata": {},
+  "time": {
+   "start": 1767261606000,
+   "end": 1767261606500
+  }
+ }
+}

@@ -1,0 +1,11 @@
+{
+ "id": "prt_011",
+ "messageID": "msg_a1",
+ "sessionID": "ses_main",
+ "type": "reasoning",
+ "text": "Let me look\nat the code",
+ "time": {
+  "start": 1767261602100,
+  "end": 1767261602200
+ }
+}

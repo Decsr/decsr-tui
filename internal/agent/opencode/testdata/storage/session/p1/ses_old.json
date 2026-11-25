@@ -1,0 +1,10 @@
+{
+ "id": "ses_old",
+ "version": "1.0.0",
+ "projectID": "p1",
+ "title": "New session - 2026-01-01",
+ "time": {
+  "created": 1767254400000,
+  "updated": 1767254400000
+ }
+}

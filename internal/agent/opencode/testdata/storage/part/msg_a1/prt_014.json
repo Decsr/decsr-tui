@@ -1,0 +1,23 @@
+{
+ "id": "prt_014",
+ "messageID": "msg_a1",
+ "sessionID": "ses_main",
+ "type": "tool",
+ "callID": "call_3",
+ "tool": "edit",
+ "state": {
+  "status": "completed",
+  "input": {
+   "filePath": "/work/demo/x.go",
+   "oldString": "a\nb",
+   "newString": "A\nB\nC"
+  },
+  "output": "edited",
+  "title": "x.go",
+  "metadata": {},
+  "time": {
+   "start": 1767261607000,
+   "end": 1767261607100
+  }
+ }
+}

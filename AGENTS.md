@@ -15,9 +15,8 @@ Instead:
   copy and run themselves (include the `Co-authored-by` trailer).
 - Leave staging, committing, and pushing to the user.
 
-This rule **overrides** any "Session Completion / PUSH TO REMOTE" instructions
-below (including the beads integration): do not auto-push. Summarize what
-changed and hand the user a ready-to-use commit message.
+Do not auto-push. Summarize what changed and hand the user a ready-to-use
+commit message.
 
 ## 1. Think Before Coding
 
@@ -79,31 +78,18 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **Every new feature passes the provider policy check before it is called done.**
 
-A feature that starts, schedules, retries or talks to an agent CLI or a provider
-API (claude, codex, opencode, dsh, any HTTP endpoint) is in scope; so is one that
-reads login state. Run every check in [`doc/provider-policy.md`](doc/provider-policy.md)
-against the design before building, and again against the finished diff. The
-check is done when each item is marked pass, or fail with the guard that fixes it.
-Report the result in the hand-off. When a check fails and no guard fits, stop and
-ask the user before building.
+decsr-tui never starts an agent; it reads the session files that claude, codex
+and opencode write. A feature that starts, schedules, retries or talks to an
+agent CLI or a provider API, or that reads login state, is in scope; so is one
+that reads a new agent file. Run every check in
+[`doc/provider-policy.md`](doc/provider-policy.md) against the design before
+building, and again against the finished diff. The check is done when each item
+is marked pass, or fail with the guard that fixes it. Report the result in the
+hand-off. When a check fails and no guard fits, stop and ask the user before
+building.
 
-## 6. Test Runs Use a Free Agent
-
-**When a test starts a real agent run, use a free OpenCode model, not claude.**
-
-This covers manual and smoke runs of decsr: the Workspace, `decsr task`,
-`decsr run`, `decsr automation run` and any script that spawns a runner.
-
-- Set every role you test to `runner: opencode` with a free model, for example
-  `model: opencode/deepseek-v4.1-flash-free`. Free models change often, so run
-  `opencode models | grep free` to see the current ones.
-- Put the test settings in a throwaway project or config. Do not change the
-  user's own `.decsr/project.yaml` or `~/.decsr/config.yaml` for a test.
-- `go test` uses fakes and starts no runner. Keep it that way: no test may
-  call a real `claude` binary.
-- Use claude only when the change is about the claude runner itself (its
-  flags, auth mode, limits, MCP). Ask the user before such a run, and keep it
-  to one short run.
+`go test` uses fakes: no test may start an agent CLI or read the real
+`~/.claude`, `~/.codex` or opencode data directories.
 
 ---
 
@@ -115,53 +101,6 @@ This covers manual and smoke runs of decsr: the Workspace, `decsr task`,
 - **Claude Haiku** — searching code and documentation (exploration, lookups, research sub-agents).
 - **Claude Sonnet** — all hands-on work: implementation, tests, refactors, docs, config, scripts, builds and fixes for review findings.
 - **GPT \*-sol** — UI/UX design only (layouts, user flows, visual and interaction design, design review). GPT models are banned from writing or editing code.
-
-## Beads Issue Tracker
-
-This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
-
-### Quick Reference
-
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work
-bd close <id>         # Complete work
-```
-
-### Rules
-
-- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
-- Run `bd prime` for detailed command reference and session close protocol
-- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
-
-**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
-
-## Session Completion
-
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-<!-- END BEADS INTEGRATION -->
 
 ## Graphify Knowledge Graph
 

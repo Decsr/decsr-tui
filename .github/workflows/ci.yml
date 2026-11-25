@@ -40,5 +40,12 @@ jobs:
             exit 1
           fi
 
+      - name: Git identity (some tests commit in clones)
+        shell: bash
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.com"
+          git config --global init.defaultBranch main
+
       - name: Test
         run: go test -race -count=1 ./...

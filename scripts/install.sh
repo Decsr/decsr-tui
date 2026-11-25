@@ -1,15 +1,15 @@
 #!/bin/sh
-# Install decsr from the latest GitHub release (or DECSR_VERSION).
+# Install decsr-tui from the latest GitHub release (or DECSR_VERSION).
 #
-#   curl -fsSL https://raw.githubusercontent.com/Decsr/Decsr-Code/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/Decsr/decsr-tui/main/scripts/install.sh | sh
 #
 # Environment:
 #   DECSR_VERSION      release tag to install, e.g. v0.7.1 (default: latest)
 #   DECSR_INSTALL_DIR  install directory (default: $HOME/.local/bin)
 set -eu
 
-REPO="Decsr/Decsr-Code"
-BIN="decsr"
+REPO="Decsr/decsr-tui"
+BIN="decsr-tui"
 
 err() {
 	printf 'error: %s\n' "$*" >&2
@@ -101,4 +101,4 @@ case ":$PATH:" in
 	printf '\n%s is not on your PATH. Add it with:\n  export PATH="%s:$PATH"\n' "$dir" "$dir"
 	;;
 esac
-printf '\nNext: run `decsr doctor` to check your setup.\n'
+printf '\nNext: run `decsr-tui` inside a git repository.\n'

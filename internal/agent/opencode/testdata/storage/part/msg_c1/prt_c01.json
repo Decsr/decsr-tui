@@ -1,0 +1,21 @@
+{
+ "id": "prt_c01",
+ "messageID": "msg_c1",
+ "sessionID": "ses_child",
+ "type": "tool",
+ "callID": "call_c1",
+ "tool": "grep",
+ "state": {
+  "status": "completed",
+  "input": {
+   "pattern": "func main"
+  },
+  "output": "main.go",
+  "title": "func main",
+  "metadata": {},
+  "time": {
+   "start": 1767261610000,
+   "end": 1767261610100
+  }
+ }
+}

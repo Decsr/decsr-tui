@@ -1,0 +1,11 @@
+{
+ "id": "prt_020",
+ "messageID": "msg_a1",
+ "sessionID": "ses_main",
+ "type": "text",
+ "text": "All done",
+ "time": {
+  "start": 1767261650000,
+  "end": 1767261650001
+ }
+}

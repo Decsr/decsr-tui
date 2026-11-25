@@ -7,7 +7,7 @@ import (
 )
 
 // Tagline is the line under the logo.
-const Tagline = "AI-powered multi-agent coding pipeline"
+const Tagline = "git + live agent watcher"
 
 // LogoWidth is the width of Logo in cells.
 const LogoWidth = 24
@@ -85,4 +85,20 @@ func Logo(pinDark bool) []string {
 		out[i] = rows[i].String()
 	}
 	return out
+}
+
+// Wordmark colours text with the logo gradient, one colour per letter, for
+// one-line headers where the three-row Logo does not fit.
+func Wordmark(text string) string {
+	rs := []rune(text)
+	var b strings.Builder
+	for i, r := range rs {
+		t := 0.0
+		if len(rs) > 1 {
+			t = float64(i) / float64(len(rs)-1) * float64(len(brandStops)-1)
+		}
+		j := min(int(t), len(brandStops)-2)
+		b.WriteString(lipgloss.NewStyle().Foreground(lerpColor(brandStops[j], brandStops[j+1], t-float64(j))).Bold(true).Render(string(r)))
+	}
+	return b.String()
 }

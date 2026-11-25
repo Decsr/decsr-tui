@@ -1,1479 +1,609 @@
+// Package tui is the terminal UI: one root model that drives the panels.
 package tui
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"regexp"
-	"strconv"
+	"reflect"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 
-	"github.com/Decsr/Decsr-Code/internal/artifacts"
-	"github.com/Decsr/Decsr-Code/internal/bus"
-	"github.com/Decsr/Decsr-Code/internal/config"
-	"github.com/Decsr/Decsr-Code/internal/decsr"
-	"github.com/Decsr/Decsr-Code/internal/logging"
-	"github.com/Decsr/Decsr-Code/internal/prompts"
-	"github.com/Decsr/Decsr-Code/internal/runner"
-	"github.com/Decsr/Decsr-Code/internal/ui"
+	"github.com/Decsr/decsr-tui/internal/agent"
+	"github.com/Decsr/decsr-tui/internal/config"
+	"github.com/Decsr/decsr-tui/internal/git"
 )
 
-var agentOrder = []bus.AgentRole{
-	bus.RolePM,
-	bus.RoleCoder,
-	bus.RoleQA,
-	bus.RoleUXReviewer,
-	bus.RoleSecurity,
-}
-
-type overlayKind int
+type panelID int
 
 const (
-	overlayNone   overlayKind = iota
-	overlayPicker             // picker → optional editor
-	overlayEditor
-	overlayGit
-	overlayChat
-	overlayArtifact  // auto-opened on human gate
-	overlayNegotiate // PM requirements conversation
+	pFiles panelID = iota
+	pBranches
+	pCommits
+	pStash
+	pAgent
+	numPanels
 )
 
-// planningGates lists the artifact filenames gated during the planning phase,
-// in the order they are presented to the user.
-var planningGates = []string{
-	"architecture.md",
-	"implementation_plan.md",
-	"prompts.md",
+var panelNames = [numPanels]string{"Files", "Branches", "Commits", "Stash", "Agent"}
+
+// Options are the command line choices.
+type Options struct {
+	Session string        // open the session whose id starts with this
+	Config  config.Config // zero value means the defaults
 }
 
-// pmGates lists the PM artifacts gated before planning begins.
-var pmGates = []string{
-	"vision.md",
-	"moscow.md",
+// logBuf is the command log; git commands append from other goroutines.
+type logBuf struct {
+	mu    sync.Mutex
+	lines []string
 }
 
-// gateLabel returns a short human-readable label for a planning gate artifact.
-func gateLabel(filename string) string {
-	switch filename {
-	case "architecture.md":
-		return "architecture"
-	case "implementation_plan.md":
-		return "plan"
-	case "prompts.md":
-		return "prompts"
-	case "requirements.md":
-		return "requirements"
-	case "vision.md":
-		return "vision"
-	case "moscow.md":
-		return "MoSCoW"
-	case "task_spec.json":
-		return "task spec"
-	case "task_plan.md":
-		return "task plan"
-	case artifacts.ContextPackFile:
-		return "context"
+func (l *logBuf) add(s string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, s)
+	if len(l.lines) > 200 {
+		l.lines = l.lines[len(l.lines)-200:]
 	}
-	return filename
 }
 
-// activePMGates returns the PM-stage gate filenames for the current execution
-// mode. New-task mode uses task_spec.json + task_plan.md instead of the legacy
-// vision.md + moscow.md so the phase bar reflects the right artifacts.
-func (m Model) activePMGates() []string {
-	if m.taskRunner != nil {
-		return []string{"task_spec.json"}
+func (l *logBuf) last(n int) []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.lines) > n {
+		return append([]string(nil), l.lines[len(l.lines)-n:]...)
 	}
-	return pmGates
+	return append([]string(nil), l.lines...)
 }
 
-// activeContextGates returns the context-pack gate when the context-first
-// workflow is enabled for this run.
-func (m Model) activeContextGates() []string {
-	if m.taskRunner != nil && m.contextPackEnabled {
-		return []string{artifacts.ContextPackFile}
-	}
-	return nil
+type netOp struct {
+	name   string
+	cancel context.CancelFunc
 }
 
-// activePlanningGates returns the planning gate filenames for the current mode.
-// New-task mode gates on architecture.md (when full planning ran) and
-// task_plan.md. The architecture entry only appears once the file exists on
-// disk so feature/bugfix tasks (no detailed planning) don't show a phantom
-// step.
-func (m Model) activePlanningGates() []string {
-	if m.taskRunner != nil {
-		gates := []string{}
-		if m.wsPath != "" {
-			if _, err := os.Stat(filepath.Join(m.wsPath, "architecture.md")); err == nil {
-				gates = append(gates, "architecture.md")
-			}
-		}
-		gates = append(gates, "task_plan.md")
-		return gates
-	}
-	return planningGates
-}
-
-// Model is the root Bubble Tea model for DECSR TUI.
+// Model is the root model.
 type Model struct {
-	panels             map[bus.AgentRole]AgentPanelModel
-	activeRole         bus.AgentRole // agent currently shown in the main area
-	phase              string        // current pipeline phase for the phase bar
-	statusbar          StatusBarModel
-	sysmon             SysmonModel                   // token/usage collector (no longer rendered)
-	showSysmon         bool                          // legacy toggle; the cockpit owns the inspector
-	cockpit            CockpitModel                  // workflow-first run screen
-	agentConfigs       map[string]config.AgentConfig // per-agent runner/model config
-	contextPackEnabled bool                          // true when the context-first phase is active
-	events             <-chan bus.Message
-	cancelFunc         context.CancelFunc // cancels the pipeline context
-	llm                runner.LLMRunner
-	root               string
-	wsPath             string
-	width              int
-	height             int
-	quitting           bool
-	confirmQuit        bool   // true when showing quit confirmation dialog
-	cancelConfirm      bool   // true when showing cancel confirmation dialog
-	pauseConfirm       bool   // true when showing pause-to-change-model confirmation
-	cancelled          bool   // true after user confirmed cancel — auto-return to menu
-	gateMsg            string // non-empty while pipeline is waiting for human approval
-	pipelineErr        string // non-empty when pipeline finished with an error
-	pipelineFailed     bool   // true when pipeline finished with an error
-	pipelineResuming   bool   // true while a Ctrl+E build-fix resume is in flight
-	hidePipelineErr    bool   // true when the error banner is dismissed
-	pipelineDone       bool   // true after pipeline finished (enables return-to-menu)
-	returnToMenu       bool   // true when user chose to return to menu
-	pauseForModel      bool   // true when user paused to change the model (resume after)
-	cockpitTicking     bool   // true while the 1s cockpit refresh tick loop is scheduled
-	log                *slog.Logger
+	repo *git.Repo
+	src  agent.Source
+	opts Options
+	cfg  config.Config
 
-	// Planning sub-stage tracking.
-	gateArtifact  string          // filename currently awaiting approval
-	approvedGates map[string]bool // filenames approved so far
+	w, h      int
+	focus     panelID
+	mainFocus bool // the main pane has focus (scroll mode)
 
-	// Coding stage tracking (parsed from "Stage N/M: name" events).
-	codingStageIndex int
-	codingStageTotal int
+	head     git.Head
+	state    git.RepoState
+	headHash string
+	gen      int // bumps whenever git data changed
 
-	// pipeline is the execution pipeline (green/brown/fix/rnd), parsed from the
-	// "pipeline: X" event, shown in the phase bar.
-	pipeline string
+	files    filesPanel
+	branches branchesPanel
+	commits  commitsPanel
+	stashes  stashPanel
+	agent    agentPanel
+	main     mainView
 
-	// Typed overlay state — only one active at a time.
-	overlay          overlayKind
-	overlayPicker    PickerModel
-	overlayEditor    EditorModel
-	overlayGit       GitPanelModel
-	overlayChat      ChatModel
-	overlayArtifact  ArtifactViewerModel
-	overlayNegotiate NegotiateModel
+	clip      []git.Commit // the cherry-pick clipboard
+	todo      *todoEditor  // the interactive rebase todo editor, when open
+	tags      []git.Tag
+	worktrees []git.Worktree
+	spinning  bool // the 10fps spinner tick is running
 
-	// taskRunner is used for the unified task flow and may be nil until ready.
-	taskRunner *decsr.TaskRunner
-
-	// taskInput is the requirements/description submitted for this run. Shown
-	// at the top of the PM conversation so the user sees what they submitted.
-	taskInput string
-
-	// treeBrowsing is true while the user navigates the System Monitor tree
-	// (entered with Tab); the active agent panel is replaced by filePreview.
-	treeBrowsing bool
-	// treePreviewFocused is true once the user opens a file (Enter) while
-	// browsing: arrows then scroll the file content instead of the tree.
-	treePreviewFocused bool
-	filePreview        FilePreviewModel
+	popup   *popup
+	log     *logBuf
+	showLog bool
+	net     *netOp
+	spin    spinner.Model
+	frame   int
+	polls   int
+	quit    bool
 }
 
-// WithTaskInput sets the submitted requirements shown in the PM conversation.
-func (m Model) WithTaskInput(input string) Model {
-	m.taskInput = input
-	m.cockpit.SetTaskInput(input)
-	if strings.TrimSpace(input) == "" && m.wsPath != "" {
-		// No new task input means this run resumes an interrupted task: its
-		// runner starts with empty counters, so restore them from the run log.
-		m.cockpit.SeedUsageFromRunLog(filepath.Join(m.wsPath, "runlog.jsonl"))
+// New opens the repository at dir.
+func New(dir string, src agent.Source, opts Options) (*Model, error) {
+	repo, err := git.Open(dir)
+	if err != nil {
+		return nil, err
 	}
-	return m
-}
-
-// ReturnToMenu returns true if the user chose to go back to the main menu
-// after pipeline completion (instead of quitting).
-func (m Model) ReturnToMenu() bool {
-	return m.returnToMenu
-}
-
-// PauseForModelChange returns true if the user paused the running task to
-// change the model. The caller should show the model setup screen and then
-// resume the task with the updated config.
-func (m Model) PauseForModelChange() bool {
-	return m.pauseForModel
-}
-
-// resumeReady reports whether the run has persisted the artifacts needed to
-// resume: the approved task spec and the sub-task plan. These are written after
-// planning/decomposition, so pausing before that would leave nothing to resume.
-// The run-state sidecar is intentionally NOT required — it only carries bead
-// linkage and may be absent when bd is unavailable, but resume works without it.
-func (m Model) resumeReady() bool {
-	if m.wsPath == "" {
-		return false
+	if opts.Config.Refresh.GitSeconds <= 0 {
+		opts.Config = config.Default()
 	}
-	for _, f := range []string{artifacts.TaskSpecFile, artifacts.SubTasksFile} {
-		if _, err := os.Stat(filepath.Join(m.wsPath, f)); err != nil {
-			return false
-		}
-	}
-	return true
-}
-
-// negotiateSeed returns the content to show at the top of the PM conversation:
-// the task input submitted for this run (e.g. the Resume Project brief), or the
-// workspace requirements file when no task input was provided.
-func (m Model) negotiateSeed() string {
-	if strings.TrimSpace(m.taskInput) != "" {
-		return m.taskInput
-	}
-	ws := artifacts.Workspace{Dir: m.wsPath}
-	if data, err := ws.ReadFile(artifacts.RequirementsFile); err == nil {
-		return string(data)
-	}
-	return ""
-}
-
-// buildResumeFn returns a closure that re-runs the coder's build-and-fix loop.
-// Returns nil when no runner is available (nothing to resume).
-func (m Model) buildResumeFn() func(context.Context) error {
-	if tr := m.taskRunner; tr != nil {
-		return func(ctx context.Context) error { return tr.ResumeBuildFix(ctx) }
-	}
-	return nil
-}
-
-// runResumeCmd spawns the resume in a fresh background context and routes the
-// outcome back through PipelineDoneMsg so the existing done-handling applies.
-func runResumeCmd(fn func(context.Context) error) tea.Cmd {
-	return func() tea.Msg {
-		return PipelineDoneMsg{Err: fn(context.Background())}
-	}
-}
-
-// New creates the root TUI model.
-// llm is used for the chat overlay (may be nil).
-func New(events <-chan bus.Message, root, wsPath string, llm runner.LLMRunner, cfg config.Config) Model {
-	panels := make(map[bus.AgentRole]AgentPanelModel)
-	projectLang := resolveLanguageFromRoot(root, cfg)
-	for _, role := range agentOrder {
-		p := NewAgentPanel(role)
-		if projectLang != "" {
-			p.SetLanguage(projectLang)
-		}
-		panels[role] = p
-	}
-
-	runnerName, modelName := runnerModelFromConfig(cfg)
-	effortName := effortFromConfig(cfg)
-	sysmon := NewSysmon()
-	sysmon.SetProjectRoot(root)
-
-	return Model{
-		panels:             panels,
-		activeRole:         bus.RolePM,
-		phase:              "idle",
-		statusbar:          NewStatusBar(80).WithBranch(GitBranch(root)).WithState("idle").WithRunnerModel(runnerName, modelName).WithEffort(effortName),
-		sysmon:             sysmon,
-		showSysmon:         false,
-		cockpit:            NewCockpit(cfg, root, wsPath),
-		agentConfigs:       cfg.Agents,
-		contextPackEnabled: !cfg.Project.Context.Pack.Disable,
-		events:             events,
-		llm:                llm,
-		root:               root,
-		wsPath:             wsPath,
-		width:              80,
-		height:             24,
-		log:                logging.ForComponent("tui_model"),
-		approvedGates:      make(map[string]bool),
-	}
-}
-
-// runnerModelFromConfig extracts the runner name and model from the QA agent config.
-func runnerModelFromConfig(cfg config.Config) (string, string) {
-	if ac, ok := cfg.Agents["qa"]; ok {
-		r := ac.Runner
-		if r == "" {
-			r = "opencode"
-		}
-		return r, ac.Model
-	}
-	return "opencode", ""
-}
-
-// effortFromConfig extracts the QA agent's configured effort for the initial
-// status bar. The status bar updates to the active role on the first bus event.
-func effortFromConfig(cfg config.Config) string {
-	if ac, ok := cfg.Agents["qa"]; ok {
-		return ac.Effort
-	}
-	return ""
-}
-
-// runnerModelForRole returns the runner and model configured for a given agent role.
-// Falls back to the global default (most common pair) when the role has no explicit config.
-func runnerModelForRole(agents map[string]config.AgentConfig, role bus.AgentRole) (string, string) {
-	return runnerModelForKey(agents, string(role))
-}
-
-// runnerModelForKey resolves the runner and model for a config key (e.g. an
-// agent role or a sub-role such as "coder_fixer"). Falls back to the global
-// default when the key has no explicit config.
-func runnerModelForKey(agents map[string]config.AgentConfig, key string) (string, string) {
-	defaultRunner, defaultModel, _ := detectDefaultRunnerModel(agents)
-
-	ac, ok := agents[key]
-	if !ok {
-		return defaultRunner, defaultModel
-	}
-
-	r := ac.Runner
-	mdl := ac.Model
-	if r == "" {
-		r = defaultRunner
-	}
-	if mdl == "" {
-		mdl = defaultModel
-	}
-	return r, mdl
-}
-
-// effortForKey returns the configured effort for a config key. Empty means the
-// provider default (the status bar then omits the suffix).
-func effortForKey(agents map[string]config.AgentConfig, key string) string {
-	if ac, ok := agents[key]; ok {
-		return ac.Effort
-	}
-	return ""
-}
-
-// configKeyForState maps a pipeline state to the agent config key whose
-// runner/model should be displayed. Most states map to their bus role, but the
-// fix loop uses the dedicated "coder_fixer" config when present.
-func configKeyForState(state string) string {
-	if state == "coder_fixer" {
-		return "coder_fixer"
-	}
-	return string(stateToRole(state))
-}
-
-func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{waitForBusEvent(m.events)}
-	for _, p := range m.panels {
-		cmds = append(cmds, p.Init())
-	}
-	return tea.Batch(cmds...)
-}
-
-// startCockpitTick starts the 1s refresh loop unless one is already running.
-func (m *Model) startCockpitTick() tea.Cmd {
-	if m.cockpitTicking {
-		return nil
-	}
-	m.cockpitTicking = true
-	return cockpitTick()
-}
-
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
-	// Layout on resize — always, even with overlay active.
-	if wm, ok := msg.(tea.WindowSizeMsg); ok {
-		m.width = wm.Width
-		m.height = wm.Height
-		m.layout()
-	}
-
-	// BusMessageMsg is always processed regardless of overlay state.
-	// This prevents the listener chain from breaking while an overlay is open.
-	if busMsg, ok := msg.(BusMessageMsg); ok {
-		bm := busMsg.Msg
-		m.cockpit.Observe(bm)
-		m.log.Debug("bus message received",
-			slog.String("type", string(bm.Type)),
-			slog.String("from", string(bm.From)),
-			slog.String("to", string(bm.To)),
-		)
-		switch bm.Type {
-		case bus.MsgHumanGate:
-			if s, ok := bm.Payload.(string); ok {
-				m.gateMsg = s
-				m.gateArtifact = s
-				m.log.Info("human gate activated",
-					slog.String("artifact", s),
-					slog.String("label", gateLabel(s)),
-				)
-				// Close the negotiate overlay when a gate fires (PM conversation done).
-				// Do not auto-open the artifact viewer: the cockpit inspector keeps
-				// the gate visible without hiding the workflow. Ctrl+O opens it.
-				if m.overlay == overlayNegotiate {
-					m.overlay = overlayNone
-				}
-				m.statusbar = m.statusbar.WithState("⏸ " + gateLabel(s) + " — waiting for approval")
-			}
-		case bus.MsgEvent:
-			if s, ok := bm.Payload.(string); ok {
-				// Capture the pipeline classification for the phase bar.
-				if p := strings.TrimPrefix(s, "pipeline: "); p != s {
-					m.pipeline = strings.TrimSpace(p)
-				}
-				// Detect stage transitions (e.g. "── Stage 2/5: Must Have — Auth ──").
-				if stageInfo := extractStageInfo(s); stageInfo != "" {
-					prevStage := m.statusbar.stageInfo
-					m.statusbar = m.statusbar.WithStageInfo(stageInfo)
-					m.codingStageIndex, m.codingStageTotal = parseStageProgress(stageInfo)
-					if prevStage == "" {
-						cmds = append(cmds, statusBarTick())
-					}
-				}
-				// Clear stage info only when pipeline is fully done.
-				if s == "done" {
-					m.statusbar = m.statusbar.WithStageInfo("")
-				}
-				// Switch active panel based on pipeline state changes.
-				if role := stateToRole(s); role != "" {
-					m.activeRole = role
-					m.cockpit.SetActiveRole(role)
-					r, mdl := runnerModelForKey(m.agentConfigs, configKeyForState(s))
-					m.statusbar = m.statusbar.WithRunnerModel(r, mdl).WithEffort(effortForKey(m.agentConfigs, configKeyForState(s)))
-				}
-				for _, ps := range []string{"compacting", "negotiating", "pm", "planner", "research", "coder", "poc", "coder_fixer", "qa_tests", "qa_review", "tester", "reviewer", "ux_reviewer", "security", "done"} {
-					if s == ps {
-						m.phase = s
-						m.statusbar = m.statusbar.WithState(s)
-						if s == "negotiating" && m.overlay != overlayNegotiate {
-							sendFn := func(msg string) {
-								if m.taskRunner != nil {
-									m.taskRunner.SendHumanReply(msg)
-								}
-							}
-							neg := NewNegotiate(sendFn, m.root)
-							neg.SetSize(m.contentWidth(), m.height)
-							if m.contextPackEnabled {
-								neg.Prefill(m.taskInput)
-								neg.SetRequireInput(true)
-							}
-							// Seed with the submitted task input so the user sees
-							// what's being negotiated (e.g. the Resume Project
-							// brief), and show a waiting indicator until the PM
-							// produces its first response — otherwise the pane
-							// looks blank/broken while a slow local model thinks.
-							if seed := m.negotiateSeed(); strings.TrimSpace(seed) != "" {
-								neg.SeedContext(seed)
-								neg.SetWaiting()
-							}
-							m.overlayNegotiate = neg
-							m.overlay = overlayNegotiate
-							m.cockpit.CloseHelp()
-						}
-						// Pipeline left the negotiation phase — auto-close
-						// the negotiate overlay so the user sees subsequent
-						// stages (planning/coding/…) instead of being stuck
-						// on "PM is thinking…".
-						if s != "negotiating" && m.overlay == overlayNegotiate {
-							m.overlay = overlayNone
-						}
-						// Start elapsed timer on first coding handoff.
-						if s == "coder" && m.taskRunner != nil && m.statusbar.codingStarted.IsZero() {
-							codingStart := m.taskRunner.CodingStarted()
-							if !codingStart.IsZero() {
-								m.statusbar = m.statusbar.WithCodingStarted(codingStart)
-							}
-						}
-					}
-				}
-			}
-		case bus.MsgRequest:
-			if bm.To != "" && bm.To != bus.RoleSystem {
-				m.activeRole = bm.To
-				m.cockpit.SetActiveRole(bm.To)
-				r, mdl := runnerModelForRole(m.agentConfigs, bm.To)
-				m.statusbar = m.statusbar.WithRunnerModel(r, mdl).WithEffort(effortForKey(m.agentConfigs, string(bm.To)))
-			}
-		case bus.MsgResponse:
-			m.gateMsg = ""
-		case bus.MsgUsage:
-			// Token usage is owned by SysmonModel and observed there above
-			// (m.sysmon.ObserveBusMessage). Don't track it separately on
-			// Model — that produced two parallel maps that could drift
-			// between the live monitor and the end-of-run summary.
-		case bus.MsgConversation:
-			if conv, ok := bm.Payload.(bus.ConversationPayload); ok && conv.From == "pm" {
-				// Open negotiate overlay if not already open.
-				if m.overlay != overlayNegotiate {
-					sendFn := func(msg string) {
-						if m.taskRunner != nil {
-							m.taskRunner.SendHumanReply(msg)
-						}
-					}
-					neg := NewNegotiate(sendFn, m.root)
-					neg.SetSize(m.contentWidth(), m.height)
-					if m.contextPackEnabled {
-						neg.Prefill(m.taskInput)
-						neg.SetRequireInput(true)
-					}
-					// Seed with the submitted task input so the conversation
-					// shows the brief from the first step — the user can review
-					// it and either refine it via chat or accept (Ctrl+A). Falls
-					// back to the workspace requirements file when no task input
-					// was provided (e.g. a plain resumed run).
-					neg.SeedContext(m.negotiateSeed())
-					m.overlayNegotiate = neg
-					m.overlay = overlayNegotiate
-					m.cockpit.CloseHelp()
-				}
-				// Only render a non-empty PM message; an empty response would
-				// otherwise leave a blank "pm ›" line and strand the user.
-				if strings.TrimSpace(conv.Content) != "" {
-					m.overlayNegotiate.AddPMMessage(conv.Content)
-				} else {
-					m.overlayNegotiate.SetReady()
-				}
-			}
-		}
-
-		agentMsg := busToAgentEvent(bm)
-		if agentMsg.Role != "" {
-			if p, ok := m.panels[agentMsg.Role]; ok {
-				updated, cmd := p.Update(agentMsg)
-				m.panels[agentMsg.Role] = updated
-				cmds = append(cmds, cmd)
-			}
-		}
-		cmds = append(cmds, waitForBusEvent(m.events))
-		return m, tea.Batch(cmds...)
-	}
-
-	// Sysmon ticks are processed independently — always, regardless of overlay.
-	if tickMsg, ok := msg.(sysmonTickMsg); ok {
-		var cmd tea.Cmd
-		m.sysmon, cmd = m.sysmon.Update(tickMsg)
-		cmds = append(cmds, cmd)
-		return m, tea.Batch(cmds...)
-	}
-
-	// Spinner ticks are also processed globally for agent panels.
-	if _, ok := msg.(spinner.TickMsg); ok {
-		for role, p := range m.panels {
-			updated, cmd := p.Update(msg)
-			m.panels[role] = updated
-			cmds = append(cmds, cmd)
-		}
-		return m, tea.Batch(cmds...)
-	}
-
-	// Ctrl+T toggles the cockpit inspector from any context (including overlays).
-	if km, ok := msg.(tea.KeyMsg); ok && km.String() == "ctrl+t" && !m.cockpit.HelpOpen() {
-		m.cockpit.ToggleInspector()
-		m.layout()
-		return m, m.resizeActiveOverlay()
-	}
-
-	// Pipeline completion and status-bar ticks must never be swallowed by an overlay.
-	_, isPipelineDone := msg.(PipelineDoneMsg)
-	_, isStatusTick := msg.(statusBarTickMsg)
-	_, isCockpitTick := msg.(cockpitTickMsg)
-
-	// Non-bus messages: route to overlay or normal handling.
-	if m.overlay != overlayNone && !isPipelineDone && !isStatusTick && !isCockpitTick {
-		return m.updateOverlay(msg)
-	}
-
-	switch msg := msg.(type) {
-
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.layout()
-
-	case tea.KeyMsg:
-		// Quit confirmation intercepts all keys.
-		if m.confirmQuit {
-			switch msg.String() {
-			case "y", "Y", "enter":
-				m.quitting = true
-				if m.cancelFunc != nil {
-					m.cancelFunc()
-				}
-				return m, tea.Quit
-			default:
-				m.confirmQuit = false
-			}
-			return m, nil
-		}
-
-		// Cancel confirmation intercepts all keys.
-		if m.cancelConfirm {
-			switch msg.String() {
-			case "y", "Y", "enter":
-				if m.cancelFunc != nil {
-					m.cancelFunc()
-				}
-				m.cancelConfirm = false
-				m.cancelled = true
-				m.statusbar = m.statusbar.WithState("cancelling…")
-			default:
-				m.cancelConfirm = false
-			}
-			return m, nil
-		}
-
-		// Pause confirmation intercepts all keys.
-		if m.pauseConfirm {
-			switch msg.String() {
-			case "y", "Y", "enter":
-				if m.cancelFunc != nil {
-					m.cancelFunc()
-				}
-				m.pauseConfirm = false
-				m.pauseForModel = true
-				m.statusbar = m.statusbar.WithState("pausing to change model…")
-				return m, tea.Quit
-			default:
-				m.pauseConfirm = false
-			}
-			return m, nil
-		}
-
-		// The help overlay swallows every key, including the Ctrl shortcuts.
-		if m.cockpit.HelpOpen() {
-			var cmd tea.Cmd
-			m.cockpit, cmd = m.cockpit.Update(msg)
-			return m, cmd
-		}
-
-		// Tree-browsing mode: navigate the System Monitor file tree and preview
-		// the selected file in place of the agent output.
-		if m.treeBrowsing {
-			// Preview-focused sub-mode: arrows scroll the open file instead of
-			// moving the tree selection, so long files are fully readable.
-			if m.treePreviewFocused {
-				switch msg.String() {
-				case "esc", "left", "h":
-					m.treePreviewFocused = false
-				case "tab", "q":
-					m.treeBrowsing = false
-					m.treePreviewFocused = false
-					m.sysmon.BlurTree()
-				case "up", "k":
-					m.filePreview.ScrollUp()
-				case "down", "j":
-					m.filePreview.ScrollDown()
-				case "pgup":
-					m.filePreview.PageUp()
-				case "pgdown", " ":
-					m.filePreview.PageDown()
-				case "home", "g":
-					m.filePreview.GotoTop()
-				case "end", "G":
-					m.filePreview.GotoBottom()
-				}
-				return m, nil
-			}
-			switch msg.String() {
-			case "esc", "tab", "q":
-				m.treeBrowsing = false
-				m.sysmon.BlurTree()
-			case "up", "k":
-				m.sysmon.MoveTreeCursor(-1)
-				m.syncTreePreview()
-			case "down", "j":
-				m.sysmon.MoveTreeCursor(1)
-				m.syncTreePreview()
-			case "pgup":
-				m.filePreview.ScrollUp()
-			case "pgdown":
-				m.filePreview.ScrollDown()
-			case "enter", "right", "l":
-				m.syncTreePreview()
-				// Opening a file focuses the preview for scrolling; directories
-				// stay in tree-navigation mode.
-				if _, isDir, ok := m.sysmon.SelectedTreeEntry(); ok && !isDir {
-					m.treePreviewFocused = true
-				}
-			}
-			return m, nil
-		}
-
-		switch msg.String() {
-		case "tab":
-			m.cockpit.CycleFocus(1)
-			return m, nil
-		case "shift+tab":
-			m.cockpit.CycleFocus(-1)
-			return m, nil
-		case "q", "Q":
-			m.confirmQuit = true
-		case "m", "M":
-			if m.pipelineDone {
-				m.returnToMenu = true
-				return m, tea.Quit
-			}
-		case "esc", "ctrl+x":
-			if m.pipelineDone {
-				// Pipeline already finished (error or success) — return to menu.
-				m.returnToMenu = true
-				return m, tea.Quit
-			}
-			m.cancelConfirm = true
-		case "ctrl+a":
-			m.approveCurrentGate("shortcut")
-		case "ctrl+p":
-			// Pause the running task to change the model, then resume. Only
-			// allow this once the run is resumable (spec + plan persisted),
-			// otherwise resume would fail with "no resumable task found".
-			if !m.pipelineDone {
-				if m.resumeReady() {
-					m.pauseConfirm = true
-				} else {
-					m.statusbar = m.statusbar.WithState("⏸ can't pause yet — wait until planning completes")
-				}
-			}
-		case "ctrl+e":
-			if m.pipelineFailed && !m.pipelineResuming {
-				resumeFn := m.buildResumeFn()
-				if resumeFn != nil {
-					m.pipelineFailed = false
-					m.pipelineDone = false
-					m.pipelineErr = ""
-					m.hidePipelineErr = false
-					m.pipelineResuming = true
-					m.statusbar = m.statusbar.WithState("↻ resuming build-fix loop…")
-					cmds = append(cmds, runResumeCmd(resumeFn), m.startCockpitTick())
-				}
-			}
-		case "ctrl+r":
-			picker := NewPicker(m.root, m.wsPath)
-			picker.SetSize(m.contentWidth(), m.height)
-			m.overlayPicker = picker
-			m.overlay = overlayPicker
-		case "ctrl+g":
-			gp, err := NewGitPanel(m.root)
-			if err == nil {
-				gp.SetSize(m.contentWidth(), m.height)
-				m.overlayGit = gp
-				m.overlay = overlayGit
-			}
-		case "ctrl+o":
-			m.openCurrentGate()
-		case "ctrl+c":
-			if m.llm != nil {
-				systemPrompt := m.buildPMChatPrompt()
-				chat := NewChat(m.llm, systemPrompt).WithFileContext(m.root)
-				chat.SetSize(m.contentWidth(), m.height)
-				m.overlayChat = chat
-				m.overlay = overlayChat
-			}
-		default:
-			// Enter on a pending gate opens the artifact viewer; otherwise it
-			// moves cockpit focus into the selected pane.
-			if msg.String() == "enter" && m.gateArtifact != "" {
-				m.openCurrentGate()
-				return m, nil
-			}
-			// Cockpit navigation: focus, tabs, subtask tree, inspector.
-			var cmd tea.Cmd
-			m.cockpit, cmd = m.cockpit.Update(msg)
-			cmds = append(cmds, cmd)
-		}
-
-	case TaskRunnerReadyMsg:
-		m.taskRunner = msg.Runner
-		if msg.Cancel != nil {
-			m.cancelFunc = msg.Cancel
-		}
-		m.cockpit.SetStarted(time.Now())
-		m.cockpit.SetTaskInput(m.taskInput)
-		m.cockpit.LoadPlan()
-		cmds = append(cmds, m.startCockpitTick())
-
-	case cockpitTickMsg:
-		// Re-rendering is all that is needed: the clock and stage timers are
-		// derived from the wall clock in View. Stop once the pipeline is done.
-		if m.pipelineDone {
-			m.cockpitTicking = false
-		} else {
-			cmds = append(cmds, cockpitTick())
-		}
-
-	case PipelineDoneMsg:
-		// The negotiate overlay waits on the pipeline; close it so the
-		// outcome is visible instead of "PM is thinking…" forever.
-		if m.overlay == overlayNegotiate {
-			m.overlay = overlayNone
-		}
-		m.pipelineDone = true
-		m.pipelineResuming = false
-		m.cockpit.SetDone(msg.Err)
-		if m.cancelled {
-			m.returnToMenu = true
-			return m, tea.Quit
-		}
-		if msg.Err != nil {
-			m.pipelineErr = msg.Err.Error()
-			m.pipelineFailed = true
-			m.hidePipelineErr = false
-			m.log.Error("pipeline finished with error", slog.String("error", m.pipelineErr))
-			if errors.Is(msg.Err, runner.ErrRateLimited) {
-				m.statusbar = m.statusbar.WithState("⛔ rate limit / quota hit — esc/m/ctrl+x menu  q quit")
-			} else {
-				m.statusbar = m.statusbar.WithState("✗ error — esc/m/ctrl+x menu  q quit")
-			}
-		} else {
-			m.pipelineFailed = false
-			m.hidePipelineErr = false
-			m.log.Info("pipeline completed successfully")
-			m.statusbar = m.statusbar.WithState("✓ done — esc/m/ctrl+x menu  q quit")
-		}
-
-	case statusBarTickMsg:
-		if m.statusbar.stageInfo != "" {
-			m.statusbar = m.statusbar.AdvanceScroll()
-			cmds = append(cmds, statusBarTick())
-		}
-	}
-
-	return m, tea.Batch(cmds...)
-}
-
-// updateOverlay dispatches to the currently active overlay.
-func (m Model) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch m.overlay {
-	case overlayNone:
-		// No overlay active — nothing to dispatch.
-	case overlayPicker:
-		switch msg := msg.(type) {
-		case PickerSelectedMsg:
-			if msg.IsNew {
-				ed := NewEditor("")
-				m.overlayEditor = ed
-				m.overlay = overlayEditor
-				return m, nil
-			}
-			// Selected existing file — close picker.
-			m.overlay = overlayNone
-			return m, nil
-		case PickerCancelledMsg:
-			m.overlay = overlayNone
-			return m, nil
-		default:
-			var cmd tea.Cmd
-			m.overlayPicker, cmd = m.overlayPicker.Update(msg)
-			return m, cmd
-		}
-
-	case overlayEditor:
-		switch msg.(type) {
-		case EditorCancelledMsg:
-			m.overlay = overlayNone
-		case RequirementsSavedMsg:
-			m.overlay = overlayNone
-		default:
-			var cmd tea.Cmd
-			m.overlayEditor, cmd = m.overlayEditor.Update(msg)
-			return m, cmd
-		}
-
-	case overlayGit:
-		switch msg.(type) {
-		case GitPanelClosedMsg:
-			m.overlay = overlayNone
-		default:
-			var cmd tea.Cmd
-			m.overlayGit, cmd = m.overlayGit.Update(msg)
-			return m, cmd
-		}
-
-	case overlayChat:
-		switch msg.(type) {
-		case ChatClosedMsg:
-			m.overlay = overlayNone
-		default:
-			var cmd tea.Cmd
-			m.overlayChat, cmd = m.overlayChat.Update(msg)
-			return m, cmd
-		}
-
-	case overlayNegotiate:
-		switch msg.(type) {
-		case NegotiateClosedMsg:
-			m.overlay = overlayNone
-			if !m.pipelineDone && m.phase == "negotiating" {
-				if m.cancelFunc != nil {
-					m.cancelFunc()
-				}
-				m.returnToMenu = true
-				return m, tea.Quit
-			}
-			if m.taskRunner != nil && !m.pipelineDone {
-				if m.cancelFunc != nil {
-					m.cancelFunc()
-				}
-				m.returnToMenu = true
-				return m, tea.Quit
-			}
-		default:
-			var cmd tea.Cmd
-			m.overlayNegotiate, cmd = m.overlayNegotiate.Update(msg)
-			return m, cmd
-		}
-
-	case overlayArtifact:
-		switch msg := msg.(type) {
-		case artifactViewerClosedMsg:
-			m.overlay = overlayNone
-			if msg.regenerate {
-				m.regenerateCurrentGate()
-			} else if msg.approved {
-				m.approveCurrentGate("viewer")
-			} else {
-				m.log.Debug("gate dismissed without approval",
-					slog.String("artifact", m.gateArtifact),
-				)
-			}
-		case tea.WindowSizeMsg:
-			// Shrink height for phase bar + status bar below the overlay.
-			// Shrink width for sysmon panel on the right.
-			msg.Height -= 2
-			msg.Width = m.contentWidth()
-			var cmd tea.Cmd
-			m.overlayArtifact, cmd = m.overlayArtifact.Update(msg)
-			return m, cmd
-		default:
-			var cmd tea.Cmd
-			m.overlayArtifact, cmd = m.overlayArtifact.Update(msg)
-			return m, cmd
-		}
-
-	default:
-		// overlayNone is handled before this method is called.
-	}
-
-	// The BusMessageMsg handler keeps the single bus waiter armed (bus messages
-	// bypass overlays), so closing an overlay must not start another reader.
+	m := &Model{repo: repo, src: src, opts: opts, cfg: opts.Config, log: &logBuf{}, showLog: true, focus: pFiles}
+	repo.LogFunc = m.log.add
+	m.spin = spinner.New(spinner.WithSpinner(pixelSpinner))
+	m.files = filesPanel{tree: true, collapsed: map[string]bool{}}
+	m.agent = agentPanel{expanded: map[string]bool{}, follow: true}
 	return m, nil
 }
 
-func (m Model) View() string {
-	return m.view()
+// ---- messages ----
+
+type (
+	statusTickMsg struct{}
+	agentTickMsg  struct{}
+	spinTickMsg   struct{}
+	dataMsg       struct {
+		full      bool
+		head      git.Head
+		files     []git.File
+		state     git.RepoState
+		headHash  string
+		branches  []git.Branch
+		commits   []git.Commit
+		stashes   []git.Stash
+		tags      []git.Tag
+		worktrees []git.Worktree
+		err       error
+	}
+	sessionsMsg struct{ sessions []agent.Session }
+	agentMsg    struct {
+		id      string
+		changed bool
+		snap    agent.Snapshot
+	}
+	mainMsg struct {
+		seq        int
+		ident, ver string
+		secs       []section
+	}
+	actionMsg  struct{ err error }
+	netDoneMsg struct {
+		name      string
+		err       error
+		cancelled bool
+	}
+	editorDoneMsg struct{ err error }
+	stgMsg        struct {
+		path       string
+		staged     bool
+		text       string
+		fromAction bool
+		err        error // reading the diff
+		actErr     error // applying the patch
+	}
+	commitFilesMsg struct {
+		hash  string
+		files []git.ChangedFile
+		err   error
+	}
+)
+
+func (m *Model) tickStatus() tea.Cmd {
+	d := time.Duration(m.cfg.Refresh.GitSeconds) * time.Second
+	return tea.Tick(d, func(time.Time) tea.Msg { return statusTickMsg{} })
 }
 
-func (m Model) view() string {
-	if m.quitting {
-		return "bye\n"
-	}
-
-	switch m.overlay {
-	case overlayNone:
-		// Fall through to main view below.
-	case overlayPicker:
-		return m.withSysmon(m.overlayPicker.View())
-	case overlayEditor:
-		return m.withSysmon(m.overlayEditor.View())
-	case overlayGit:
-		return m.withSysmon(m.overlayGit.View())
-	case overlayChat:
-		return m.withSysmon(m.overlayChat.View())
-	case overlayNegotiate:
-		return m.withSysmon(m.overlayNegotiate.View())
-	case overlayArtifact:
-		artifactView := strings.Join([]string{
-			strings.TrimRight(m.overlayArtifact.View(), "\n"),
-			m.statusbar.View(),
-		}, "\n")
-		return artifactView
-	}
-
-	// Main area: workflow cockpit. The old single-agent panel and system
-	// monitor are gone; the cockpit owns the phase spine, subtask tree,
-	// activity stream, tokens and inspector.
-	panelH := m.height - m.statusbar.Height()
-	if panelH < 4 {
-		panelH = 4
-	}
-	m.cockpit.SetSize(m.width, panelH)
-
-	// The cockpit draws the screen header itself (ui.Header).
-	parts := []string{
-		m.cockpit.View(),
-		m.statusbar.View(),
-	}
-
-	mainView := strings.Join(parts, "\n")
-
-	if m.confirmQuit {
-		dimStyle := lipgloss.NewStyle().Foreground(ui.Muted)
-		warnStyle := lipgloss.NewStyle().Foreground(ui.Fail).Bold(true)
-		brightStyle := lipgloss.NewStyle().Foreground(ui.Text).Bold(true)
-		confirmBox := lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(ui.Fail).
-			Padding(1, 3).
-			Render(
-				warnStyle.Render("  QUIT DECSR?") + "\n\n" +
-					dimStyle.Render("  Press ") +
-					brightStyle.Render("y") +
-					dimStyle.Render(" or ") +
-					brightStyle.Render("Enter") +
-					dimStyle.Render(" to confirm, any other key to cancel"),
-			)
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, confirmBox)
-	}
-
-	if m.cancelConfirm {
-		dimStyle := lipgloss.NewStyle().Foreground(ui.Muted)
-		warnStyle := lipgloss.NewStyle().Foreground(ui.Text).Bold(true)
-		brightStyle := lipgloss.NewStyle().Foreground(ui.Text).Bold(true)
-		confirmBox := lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(ui.Text).
-			Padding(1, 3).
-			Render(
-				warnStyle.Render("  CANCEL PIPELINE AND RETURN TO MENU?") + "\n\n" +
-					dimStyle.Render("  Press ") +
-					brightStyle.Render("y") +
-					dimStyle.Render(" or ") +
-					brightStyle.Render("Enter") +
-					dimStyle.Render(" to confirm, any other key to continue"),
-			)
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, confirmBox)
-	}
-
-	if m.pauseConfirm {
-		dimStyle := lipgloss.NewStyle().Foreground(ui.Muted)
-		warnStyle := lipgloss.NewStyle().Foreground(ui.Text).Bold(true)
-		brightStyle := lipgloss.NewStyle().Foreground(ui.Text).Bold(true)
-		confirmBox := lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(ui.Text).
-			Padding(1, 3).
-			Render(
-				warnStyle.Render("  PAUSE TASK TO CHANGE MODEL?") + "\n\n" +
-					dimStyle.Render("  The current step restarts with the new model on resume.") + "\n\n" +
-					dimStyle.Render("  Press ") +
-					brightStyle.Render("y") +
-					dimStyle.Render(" or ") +
-					brightStyle.Render("Enter") +
-					dimStyle.Render(" to confirm, any other key to continue"),
-			)
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, confirmBox)
-	}
-
-	return mainView
+func (m *Model) tickAgent() tea.Cmd {
+	d := time.Duration(m.cfg.Refresh.AgentMillis) * time.Millisecond
+	return tea.Tick(d, func(time.Time) tea.Msg { return agentTickMsg{} })
 }
 
-// openCurrentGate reopens the pending approval artifact after the viewer has
-// been closed. It is a no-op when no gate is pending.
-func (m *Model) openCurrentGate() {
-	if m.gateArtifact == "" || m.wsPath == "" {
-		return
-	}
-	var reviseFn func(string, string) error
-	m.overlayArtifact = newArtifactViewer(m.wsPath, m.gateArtifact, m.contentWidth(), m.height-2, reviseFn)
-	m.overlay = overlayArtifact
-	m.cockpit.CloseHelp()
+// tickSpin drives the spinner of running agent items at about 10fps.
+func tickSpin() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg { return spinTickMsg{} })
 }
 
-func (m *Model) approveCurrentGate(source string) {
-	if m.gateArtifact == "" {
-		return
-	}
-	if m.taskRunner == nil {
-		return
-	}
-
-	approved := m.gateArtifact
-	m.approvedGates[approved] = true
-	m.log.Info("gate approved",
-		slog.String("artifact", approved),
-		slog.String("label", gateLabel(approved)),
-		slog.String("source", source),
-	)
-	m.taskRunner.Approve()
-	m.statusbar = m.statusbar.WithState("✓ " + gateLabel(approved) + " approved")
-	m.gateMsg = ""
-	m.gateArtifact = ""
-	m.cockpit.ClearGate()
-	m.overlay = overlayNone
+// Init starts loading and the poll ticks.
+func (m *Model) Init() tea.Cmd {
+	return tea.Batch(m.startup(), m.tickStatus(), m.tickAgent())
 }
 
-func (m *Model) regenerateCurrentGate() {
-	if m.gateArtifact == "" {
-		return
-	}
-	if m.taskRunner == nil {
-		return
-	}
+func (m *Model) startup() tea.Cmd { return tea.Batch(m.loadCmd(true), m.sessionsCmd()) }
 
-	m.log.Info("regeneration requested",
-		slog.String("artifact", m.gateArtifact),
-	)
-	m.taskRunner.Regenerate()
-	m.gateMsg = ""
-	m.gateArtifact = ""
-	m.cockpit.ClearGate()
-	m.statusbar = m.statusbar.WithState("regenerating…")
-}
-
-// renderPhaseBar renders a one-line pipeline progress indicator.
-// During the planning phase it expands into sub-stages:
-//
-//	✓ architecture → ◉ plan → ○ prompts → ○ coding → …
-func (m Model) renderPhaseBar() string {
-	sepStyle := lipgloss.NewStyle().Foreground(ui.Border)
-	// Phase labels: pending = muted, done = OK, active = the phase colour.
-	dimStyle := classicChipStyle{fg: ui.Muted}
-	doneStyle := classicChipStyle{fg: ui.OK}
-
-	phaseStyle := func(label string) classicChipStyle {
-		return classicChipStyle{fg: classicPhaseColor(label)}
-	}
-
-	var parts []string
-
-	pmGatesActive := m.activePMGates()
-	planningGatesActive := m.activePlanningGates()
-
-	// Context-first gate: repository context pack.
-	for _, gate := range m.activeContextGates() {
-		label := "CONTEXT"
-		activeStyle := phaseStyle(label)
-		switch {
-		case m.approvedGates[gate]:
-			parts = append(parts, doneStyle.Render("✓ "+label))
-		case m.gateArtifact == gate:
-			parts = append(parts, activeStyle.Render("⏸ "+label))
-		case m.phase == "compacting" && m.gateArtifact == "":
-			parts = append(parts, activeStyle.Render("◉ "+label))
-		default:
-			parts = append(parts, dimStyle.Render("○ "+label))
+// loadCmd reads git state; full also reads branches, commits and stashes.
+func (m *Model) loadCmd(full bool) tea.Cmd {
+	repo := m.repo
+	return func() tea.Msg {
+		var d dataMsg
+		d.full = full
+		d.head, d.files, d.err = repo.Status()
+		if d.err != nil {
+			return d
 		}
-	}
-
-	// PM phase (before planning gates).
-	pmPhase := "pm"
-	if strings.Contains(m.phase, pmPhase) {
-		parts = append(parts, phaseStyle("PM").Render("◉ PM"))
-	} else if (len(planningGatesActive) > 0 && m.approvedGates[planningGatesActive[0]]) ||
-		(len(planningGatesActive) == 0 && len(pmGatesActive) > 0 && m.approvedGates[pmGatesActive[len(pmGatesActive)-1]]) ||
-		strings.Contains(m.phase, "planner") || strings.Contains(m.phase, "coder") {
-		parts = append(parts, doneStyle.Render("✓ PM"))
-	} else {
-		parts = append(parts, dimStyle.Render("○ PM"))
-	}
-
-	// PM gates: vision → moscow (legacy) or task spec → task plan (new task).
-	for _, gate := range pmGatesActive {
-		label := strings.ToUpper(gateLabel(gate))
-		activeStyle := phaseStyle(label)
-		switch {
-		case m.approvedGates[gate]:
-			parts = append(parts, doneStyle.Render("✓ "+label))
-		case m.gateArtifact == gate:
-			parts = append(parts, activeStyle.Render("⏸ "+label))
-		case strings.Contains(m.phase, "pm") && !m.approvedGates[gate] && m.gateArtifact == "":
-			parts = append(parts, activeStyle.Render("◉ "+label))
-		default:
-			parts = append(parts, dimStyle.Render("○ "+label))
+		d.state = repo.State()
+		if cs, _ := repo.Log("", 1); len(cs) > 0 {
+			d.headHash = cs[0].Hash
 		}
-	}
-
-	// Planning sub-stages: architecture → plan → prompts (legacy only).
-	for _, gate := range planningGatesActive {
-		label := strings.ToUpper(gateLabel(gate))
-		activeStyle := phaseStyle(label)
-		switch {
-		case m.approvedGates[gate]:
-			parts = append(parts, doneStyle.Render("✓ "+label))
-		case m.gateArtifact == gate:
-			parts = append(parts, activeStyle.Render("⏸ "+label))
-		case strings.Contains(m.phase, "planner") && !m.approvedGates[gate] && m.gateArtifact == "":
-			parts = append(parts, activeStyle.Render("◉ "+label))
-		default:
-			parts = append(parts, dimStyle.Render("○ "+label))
+		if full {
+			d.branches, _ = repo.Branches()
+			d.commits, _ = repo.Log("", 300)
+			d.stashes, _ = repo.Stashes()
+			d.tags, _ = repo.Tags()
+			d.worktrees, _ = repo.Worktrees()
 		}
+		return d
 	}
+}
 
-	// Post-planning phases.
-	postPhases := []string{"coder", "qa_tests", "qa_review", "ux_reviewer", "security", "done"}
-	for _, ph := range postPhases {
-		label := strings.ToUpper(ph)
-		isCodingActive := (ph == "coder" && strings.Contains(m.phase, "coder")) ||
-			(ph == "coder" && m.phase == "coder_fixer")
+func (m *Model) sessionsCmd() tea.Cmd {
+	src, dir := m.src, m.repo.Dir
+	return func() tea.Msg {
+		ss, _ := src.Sessions(dir)
+		return sessionsMsg{ss}
+	}
+}
 
-		if isCodingActive && m.codingStageTotal > 1 {
-			// Expand into individual stage dots. The active stage shows its
-			// name (from the current stage banner) instead of a bare "Sn".
-			activeName := extractStageTitle(m.statusbar.stageInfo)
-			for s := 1; s <= m.codingStageTotal; s++ {
-				stageDot := fmt.Sprintf("S%d", s)
-				if s == m.codingStageIndex {
-					icon := "◉"
-					if m.phase == "coder_fixer" {
-						icon = "⟳"
-					}
-					label := stageDot
-					if activeName != "" {
-						label = fmt.Sprintf("%s (%d/%d)", activeName, s, m.codingStageTotal)
-					}
-					parts = append(parts, phaseStyle("CODER").Render(icon+" "+label))
-				} else if s < m.codingStageIndex {
-					parts = append(parts, doneStyle.Render("✓ "+stageDot))
-				} else {
-					parts = append(parts, dimStyle.Render("○ "+stageDot))
-				}
+// do runs a git action off the UI thread, then reloads everything.
+func (m *Model) do(f func() error) tea.Cmd {
+	return func() tea.Msg { return actionMsg{f()} }
+}
+
+func (m *Model) startNet(name string, f func(ctx context.Context) error) tea.Cmd {
+	if m.net != nil {
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.net = &netOp{name, cancel}
+	m.log.add(name + " ...")
+	run := func() tea.Msg {
+		err := f(ctx)
+		return netDoneMsg{name: name, err: err, cancelled: ctx.Err() != nil}
+	}
+	return tea.Batch(run, m.spin.Tick)
+}
+
+// ---- update ----
+
+// Update handles one message, then keeps the main pane in step.
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	cmd := m.update(msg)
+	m.syncLists()
+	if m.quit {
+		return m, tea.Quit
+	}
+	return m, tea.Batch(cmd, m.syncMain())
+}
+
+func (m *Model) update(msg tea.Msg) tea.Cmd {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.w, m.h = msg.Width, msg.Height
+	case tea.KeyMsg:
+		return m.key(msg)
+	case tea.MouseMsg:
+		return m.mouse(msg)
+	case spinner.TickMsg:
+		if m.net != nil {
+			var c tea.Cmd
+			m.spin, c = m.spin.Update(msg)
+			return c
+		}
+	case statusTickMsg:
+		return tea.Batch(m.loadCmd(false), m.tickStatus(), m.sessionsEvery())
+	case agentTickMsg:
+		return tea.Batch(m.agentPollCmd(), m.tickAgent())
+	case spinTickMsg:
+		m.frame++
+		if m.agentRunning() {
+			return tickSpin()
+		}
+		m.spinning = false
+	case dataMsg:
+		return m.applyData(msg)
+	case sessionsMsg:
+		m.applySessions(msg.sessions)
+	case agentMsg:
+		return m.applyAgent(msg)
+	case customDoneMsg:
+		return m.customDone(msg)
+	case forceWorktreeMsg:
+		m.confirm("Remove worktree", "Worktree "+msg.path+" has changes or is locked.\nRemove it anyway?", func() tea.Cmd {
+			return m.do(func() error { return m.repo.RemoveWorktree(msg.path, true) })
+		})
+	case mainMsg:
+		if msg.seq == m.main.seq {
+			m.main.apply(msg.ident, msg.ver, msg.secs)
+			if msg.ident == "changes" {
+				m.syncChanges()
 			}
-		} else if ph == "coder" && m.phase == "coder_fixer" {
-			parts = append(parts, phaseStyle("CODER_FIXER").Render("⟳ CODER_FIXER"))
-		} else if strings.Contains(m.phase, ph) {
-			parts = append(parts, phaseStyle(label).Render("◉ "+label))
-		} else {
-			parts = append(parts, dimStyle.Render("○ "+label))
 		}
-	}
-
-	joined := "  " + strings.Join(parts, sepStyle.Render("▸"))
-
-	// Prefix the bar with the active pipeline type (green/brown/fix/rnd).
-	if m.pipeline != "" {
-		tag := lipgloss.NewStyle().
-			Foreground(ui.Text).
-			Bold(true).
-			Render("[" + strings.ToUpper(m.pipeline) + "]")
-		joined = "  " + tag + joined
-	}
-
-	// Clip to terminal width, keeping the active phase visible.
-	if m.width > 0 && lipgloss.Width(joined) > m.width {
-		joined = clipPhaseBar(joined, m.width)
-	}
-	return joined
-}
-
-// syncTreePreview loads the currently selected tree entry into the file preview.
-func (m *Model) syncTreePreview() {
-	rel, isDir, ok := m.sysmon.SelectedTreeEntry()
-	if !ok {
-		return
-	}
-	m.filePreview.Show(rel, isDir)
-}
-
-// withSysmon is retained as an identity helper: the system monitor is no
-// longer part of the layout. Overlays use the full terminal width.
-func (m Model) withSysmon(view string) string {
-	return view
-}
-
-// contentWidth returns the full terminal width. Overlays and editors use it.
-func (m Model) contentWidth() int {
-	return m.width
-}
-
-// resizeActiveOverlay sends a synthetic WindowSizeMsg to the current overlay
-// so it adapts to the new content width (e.g. after sysmon toggle).
-func (m *Model) resizeActiveOverlay() tea.Cmd {
-	cw := m.contentWidth()
-	switch m.overlay {
-	case overlayNone:
-		// Nothing to resize.
-	case overlayPicker:
-		m.overlayPicker.SetSize(cw, m.height)
-	case overlayEditor:
-		m.overlayEditor, _ = m.overlayEditor.Update(tea.WindowSizeMsg{Width: cw, Height: m.height})
-	case overlayGit:
-		m.overlayGit.SetSize(cw, m.height)
-	case overlayChat:
-		m.overlayChat.SetSize(cw, m.height)
-	case overlayNegotiate:
-		m.overlayNegotiate.SetSize(cw, m.height)
-	case overlayArtifact:
-		m.overlayArtifact, _ = m.overlayArtifact.Update(tea.WindowSizeMsg{Width: cw, Height: m.height - 2})
+	case actionMsg:
+		if msg.err != nil {
+			m.errorPopup(msg.err)
+		}
+		return m.loadCmd(true)
+	case netDoneMsg:
+		return m.netDone(msg)
+	case editorDoneMsg:
+		if msg.err != nil {
+			m.errorPopup(msg.err)
+		}
+		return m.loadCmd(true)
+	case stgMsg:
+		return m.applyStg(msg)
+	case forceDeleteMsg:
+		m.confirm("Delete branch", "Branch "+msg.name+" is not fully merged.\nDelete it anyway?", func() tea.Cmd {
+			return m.do(func() error { return m.repo.DeleteBranch(msg.name, true) })
+		})
+	case commitFilesMsg:
+		if msg.err == nil && m.commits.sub != nil && m.commits.sub.hash == msg.hash {
+			m.commits.sub.files = msg.files
+		}
 	}
 	return nil
 }
 
-func (m *Model) layout() {
-	m.statusbar = m.statusbar.WithWidth(m.width)
-	panelH := m.height - m.statusbar.Height()
-	if panelH < 4 {
-		panelH = 4
+func (m *Model) sessionsEvery() tea.Cmd {
+	m.polls++
+	if m.polls%2 == 0 { // every second status poll, so about every 4s
+		return m.sessionsCmd()
 	}
-	m.cockpit.SetSize(m.width, panelH)
-
-	agentW := m.width
-	for role, p := range m.panels {
-		p.SetSize(agentW, panelH)
-		m.panels[role] = p
-	}
-	// Sized here (not in View) so the stored width stays current and the
-	// previewed file is only re-read/re-highlighted when the width changes.
-	m.filePreview.SetSize(agentW, panelH)
+	return nil
 }
 
-// buildPMChatPrompt constructs a system prompt for PM chat with current project context.
-func (m *Model) buildPMChatPrompt() string {
-	ws := artifacts.Workspace{Dir: m.wsPath}
+func (m *Model) applyData(d dataMsg) tea.Cmd {
+	if d.err != nil {
+		m.log.add("status: " + d.err.Error())
+		return nil
+	}
+	var cmd tea.Cmd
+	changed := !reflect.DeepEqual(d.files, m.files.files) || d.head != m.head || d.state != m.state
+	if !d.full && d.headHash != m.headHash {
+		cmd = m.loadCmd(true) // HEAD moved elsewhere: refresh the rest
+	}
+	m.head, m.state, m.files.files = d.head, d.state, d.files
+	if d.full {
+		m.headHash = d.headHash
+		m.branches.all, m.commits.commits, m.stashes.stashes = d.branches, d.commits, d.stashes
+		m.tags, m.worktrees = d.tags, d.worktrees
+		m.gen++
+	} else if changed {
+		m.gen++
+	}
+	return cmd
+}
 
-	readArtifact := func(name string) string {
-		data, err := ws.ReadFile(name)
-		if err != nil {
-			return "(not yet generated)"
+func (m *Model) netDone(msg netDoneMsg) tea.Cmd {
+	m.net = nil
+	switch {
+	case msg.cancelled:
+		m.log.add(msg.name + " cancelled")
+	case msg.err != nil:
+		if msg.name == "push" && isRejected(msg.err) {
+			m.confirm("Push rejected", "The remote has commits you do not have.\nForce push with lease?", func() tea.Cmd {
+				return m.startNet("push", func(ctx context.Context) error { return m.repo.Push(ctx, true, false) })
+			})
+		} else {
+			m.errorPopup(msg.err)
 		}
-		return string(data)
 	}
-
-	requirements := readArtifact(artifacts.RequirementsFile)
-	vision := readArtifact(artifacts.VisionFile)
-	moscow := readArtifact(artifacts.MoscowFile)
-	architecture := readArtifact(artifacts.ArchitectureFile)
-	plan := readArtifact(artifacts.ImplementationPlanFile)
-	stagePrompts := readArtifact(artifacts.PromptsFile)
-
-	pipelineCtx := ""
-	if m.phase != "" {
-		pipelineCtx = fmt.Sprintf("Current pipeline phase: %s", m.phase)
-	}
-
-	return fmt.Sprintf(
-		prompts.MustLoad("pm-chat"),
-		requirements, vision, moscow, architecture, plan, stagePrompts, pipelineCtx,
-	)
+	return m.loadCmd(true)
 }
 
-// stageBannerRe matches a unified pipeline stage banner emitted by the
-// decsr as a MsgEvent, with optional surrounding box-drawing characters
-// already stripped. It recognises both the legacy "Stage N/M: title" format and
-// the current "Sub-task N/M (bead): title" format (the parenthetical bead id /
-// "resumed" note is optional and dropped from the displayed label).
-//
-//	Stage 2/5: Must Have — Auth
-//	Sub-task 2/5 (bead-x): Implement login
-//	Sub-task 2/5 (bead-x, resumed): Implement login
-var stageBannerRe = regexp.MustCompile(`^(Stage|Sub-task) (\d+)/(\d+)(?: \([^)]*\))?: (.+)$`)
-
-// extractStageInfo detects a pipeline stage banner and returns a normalised,
-// scrollable label ("<kind> N/M: title") for the status bar, or "" when the
-// event is not a stage banner.
-func extractStageInfo(event string) string {
-	trimmed := strings.Trim(event, "─ \t")
-	m := stageBannerRe.FindStringSubmatch(trimmed)
-	if m == nil {
-		return ""
-	}
-	return fmt.Sprintf("%s %s/%s: %s", m[1], m[2], m[3], m[4])
+func isRejected(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "rejected") || strings.Contains(s, "non-fast-forward") || strings.Contains(s, "fetch first")
 }
 
-// clipPhaseBar truncates a rendered phase bar to maxWidth visible chars, appending "…".
-// It operates on the raw ANSI string by trimming whole rune clusters from the right.
-func clipPhaseBar(bar string, maxWidth int) string {
-	if lipgloss.Width(bar) <= maxWidth {
-		return bar
-	}
-	// ANSI-aware cut so chip colours are never left half-open.
-	return ansi.Truncate(bar, maxWidth, "…")
-}
+// ---- agent ----
 
-// extractStageTitle returns just the title portion of a normalised stage label
-// ("<kind> N/M: title") produced by extractStageInfo, or "" if not recognised.
-func extractStageTitle(stageInfo string) string {
-	m := stageBannerRe.FindStringSubmatch(stageInfo)
-	if m == nil {
-		return ""
-	}
-	return strings.TrimSpace(m[4])
-}
-
-// parseStageProgress extracts (currentIndex, total) from a normalised stage
-// label produced by extractStageInfo (e.g. "Sub-task 2/5: name" or
-// "Stage 2/5: name"). Returns (0, 0) if the format is not recognised.
-func parseStageProgress(stageInfo string) (int, int) {
-	m := stageBannerRe.FindStringSubmatch(stageInfo)
-	if m == nil {
-		return 0, 0
-	}
-	idx, err := strconv.Atoi(m[2])
-	if err != nil {
-		return 0, 0
-	}
-	total, err := strconv.Atoi(m[3])
-	if err != nil {
-		return 0, 0
-	}
-	return idx, total
-}
-
-// stateToRole maps a pipeline state string (from setState) to an agent role
-// so the TUI can automatically switch the active panel.
-func stateToRole(state string) bus.AgentRole {
-	switch state {
-	case "pm", "negotiating", "compacting":
-		return bus.RolePM
-	case "coder", "coder_fixer", "research", "poc":
-		return bus.RoleCoder
-	case "qa_tests", "qa_review":
-		return bus.RoleQA
-	case "ux_reviewer":
-		return bus.RoleUXReviewer
-	case "security":
-		return bus.RoleSecurity
-	}
-	return ""
-}
-
-// busToAgentEvent converts a bus.Message to an AgentEventMsg if applicable.
-func busToAgentEvent(msg bus.Message) AgentEventMsg {
-	role := msg.From
-	if role == bus.RoleSystem {
-		role = msg.To
-	}
-
-	var state AgentState
-	var text string
-
-	switch msg.Type {
-	case bus.MsgRequest:
-		if msg.To != "" && msg.To != bus.RoleSystem {
-			state = AgentRunning
-		}
-	case bus.MsgResponse:
-		state = AgentDone
-	case bus.MsgHumanGate:
-		state = AgentGate
-	case bus.MsgEvent:
-		switch p := msg.Payload.(type) {
-		case bus.TokenPayload:
-			if !p.Done {
-				text = p.Text
-			}
-		case string:
-			if p == "coder_fixer" {
-				state = AgentFixing
-			} else if p == "done" {
-				state = AgentDone
-			} else if strings.Contains(p, "error") {
-				state = AgentError
+func (m *Model) applySessions(ss []agent.Session) {
+	a := &m.agent
+	a.sessions = ss
+	if m.opts.Session != "" {
+		for _, s := range ss {
+			if strings.HasPrefix(s.ID, m.opts.Session) {
+				m.opts.Session = ""
+				m.focus = pAgent
+				a.openSession(m.src, s)
+				a.open, a.pinned, a.follow = true, true, s.Live
+				return
 			}
 		}
 	}
+	if len(ss) == 0 {
+		return
+	}
+	if a.cur == "" || (!a.open && !a.pinned && ss[0].ID != a.cur) {
+		a.openSession(m.src, ss[0]) // watch the newest session until one is opened
+	}
+}
 
-	return AgentEventMsg{Role: role, Text: text, State: state}
+func (m *Model) agentPollCmd() tea.Cmd {
+	a := &m.agent
+	if a.tracker == nil || a.polling {
+		return nil
+	}
+	a.polling = true
+	tr, id := a.tracker, a.cur
+	return func() tea.Msg {
+		changed, _ := tr.Poll()
+		return agentMsg{id: id, changed: changed, snap: tr.Snapshot()}
+	}
+}
+
+func (m *Model) applyAgent(msg agentMsg) tea.Cmd {
+	a := &m.agent
+	if msg.id != a.cur {
+		return nil
+	}
+	a.polling = false
+	if a.loaded {
+		m.logAgentEvents(a.snap, msg.snap)
+	}
+	a.loaded = true
+	a.snap = msg.snap
+	if a.follow && a.open && !a.changes {
+		a.toEnd = true
+	}
+	if !m.spinning && m.agentRunning() {
+		m.spinning = true
+		return tickSpin()
+	}
+	return nil
+}
+
+// / agentRunning reports whether the watched session has an activity in
+// progress: its spinner shows in the header and in the tree and live view.
+func (m *Model) agentRunning() bool {
+	a := &m.agent
+	for _, x := range a.snap.Activities {
+		if x.State == agent.StateRunning {
+			return true
+		}
+	}
+	for _, s := range a.snap.Subagents {
+		for _, x := range s.Activities {
+			if x.State == agent.StateRunning {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// switchRepo re-opens the repository at dir (a worktree) and reloads everything.
+func (m *Model) switchRepo(dir string) tea.Cmd {
+	repo, err := git.Open(dir)
+	if err != nil {
+		m.errorPopup(err)
+		return nil
+	}
+	repo.LogFunc = m.log.add
+	m.repo = repo
+	m.headHash = ""
+	m.files.files, m.files.list = nil, list{}
+	m.branches = branchesPanel{}
+	m.commits = commitsPanel{}
+	m.stashes = stashPanel{}
+	m.agent = agentPanel{expanded: map[string]bool{}, follow: true}
+	m.main = mainView{}
+	m.focus, m.mainFocus = pFiles, false
+	m.log.add("switched to worktree " + repo.Dir)
+	return m.startup()
+}
+
+func (m *Model) logAgentEvents(old, cur agent.Snapshot) {
+	seen := map[string]agent.Subagent{}
+	for _, s := range old.Subagents {
+		seen[s.ID] = s
+	}
+	for _, s := range cur.Subagents {
+		name := s.Type
+		if name == "" {
+			name = s.ID
+		}
+		prev, ok := seen[s.ID]
+		switch {
+		case !ok:
+			m.log.add("subagent " + name + " started")
+			if s.Finished {
+				m.log.add("subagent " + name + " finished")
+			}
+		case !prev.Finished && s.Finished:
+			m.log.add("subagent " + name + " finished")
+		}
+	}
+}
+
+// ---- lists ----
+
+// syncLists re-finds every list selection after data or filters changed.
+func (m *Model) syncLists() {
+	for p := pFiles; p < numPanels; p++ {
+		l := m.listOf(p)
+		items := m.items(p, 40)
+		if p == pAgent && m.agent.open && m.agent.toEnd {
+			if len(items) > 0 {
+				l.cur, l.key = len(items)-1, items[len(items)-1].key
+			}
+			m.agent.toEnd = false
+		}
+		l.sync(items)
+	}
+}
+
+func (m *Model) listOf(p panelID) *list {
+	switch p {
+	case pFiles:
+		return &m.files.list
+	case pBranches:
+		return &m.branches.list
+	case pCommits:
+		if m.commits.sub != nil {
+			return &m.commits.sub.list
+		}
+		return &m.commits.list
+	case pStash:
+		return &m.stashes.list
+	case pAgent:
+		if m.agent.open {
+			return &m.agent.tree
+		}
+		return &m.agent.sessList
+	}
+	return &m.agent.sessList
+}
+
+// items returns the (filtered) rows of a panel; w is the inner width.
+func (m *Model) items(p panelID, w int) []item {
+	var its []item
+	switch p {
+	case pFiles:
+		its = m.filesItems(w)
+	case pBranches:
+		its = m.branchItems(w)
+	case pCommits:
+		its = m.commitItems(w)
+	case pStash:
+		its = m.stashItems(w)
+	case pAgent:
+		its = m.agentItems(w)
+	}
+	return filterItems(its, m.listOf(p).filter)
+}
+
+// ---- helpers ----
+
+func (m *Model) errorPopup(err error) {
+	m.popup = newError(err.Error())
+}
+
+func (m *Model) confirm(title, body string, yes func() tea.Cmd) {
+	m.popup = &popup{kind: pkConfirm, title: title, body: body, yes: yes}
+}
+
+func repoName(r *git.Repo) string { return filepath.Base(r.Dir) }
+
+// defaultEditor picks the editor command: $EDITOR, then $VISUAL, then notepad
+// on Windows, else the first of nano, vi and vim found on the PATH.
+func defaultEditor() []string {
+	for _, v := range []string{"EDITOR", "VISUAL"} {
+		if ed := strings.Fields(os.Getenv(v)); len(ed) > 0 {
+			return ed
+		}
+	}
+	if runtime.GOOS == "windows" {
+		return []string{"notepad"}
+	}
+	for _, name := range []string{"nano", "vi", "vim"} {
+		if _, err := exec.LookPath(name); err == nil {
+			return []string{name}
+		}
+	}
+	return []string{"vi"}
+}
+
+// editorCmd opens path in the editor chosen by defaultEditor.
+func (m *Model) editorCmd(path string) tea.Cmd {
+	ed := defaultEditor()
+	c := exec.Command(ed[0], append(ed[1:], filepath.Join(m.repo.Dir, filepath.FromSlash(path)))...)
+	c.Dir = m.repo.Dir
+	return tea.ExecProcess(c, func(err error) tea.Msg { return editorDoneMsg{err} })
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, one)
+	}
+	return fmt.Sprintf("%d %s", n, many)
 }

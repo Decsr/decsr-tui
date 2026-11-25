@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/Decsr/Decsr-Code/internal/ui"
+	"github.com/Decsr/decsr-tui/internal/ui"
 )
 
 // pixelSpinner is a quadrant-block spinner (the braille spinner.Dot frames are
@@ -218,7 +218,7 @@ func hintBar(width int, hints []keyHint, right string) string {
 
 // chip renders a small coloured pixel chip: dark text on an accent block.
 func chip(label string, color lipgloss.TerminalColor) string {
-	return lipgloss.NewStyle().Background(color).Foreground(crt.bg).Bold(true).Render(" " + label + " ")
+	return lipgloss.NewStyle().Background(color).Foreground(ui.PanelInk).Bold(true).Render(" " + label + " ")
 }
 
 // panelTop builds the top border line of a pixel panel with the title embedded:

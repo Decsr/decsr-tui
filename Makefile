@@ -1,5 +1,5 @@
-BINARY      := decsr
-CMD         := ./cmd/decsr
+BINARY      := decsr-tui
+CMD         := ./cmd/decsr-tui
 INSTALL_DIR := $(shell go env GOPATH)/bin
 
 # Version: prefer the latest git tag (git describe, leading "v" dropped), fall back
@@ -7,16 +7,16 @@ INSTALL_DIR := $(shell go env GOPATH)/bin
 VERSION     := $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' | grep . || cat .Version 2>/dev/null || echo "dev")
 LDFLAGS     := -ldflags "-X main.version=$(VERSION)"
 
-.PHONY: all build run test test-race lint vet demo clean install uninstall help bump-patch bump-minor bump-major release
+.PHONY: all build run test test-race lint vet clean install uninstall help bump-patch bump-minor bump-major release
 
 all: vet lint test-race build install
 
-## build: compile the binary to ./bin/decsr
+## build: compile the binary to ./bin/decsr-tui
 build:
 	mkdir -p bin
 	go build $(LDFLAGS) -o bin/$(BINARY) $(CMD)
 
-## run: launch the TUI from ./bin/decsr
+## run: launch the TUI from ./bin/decsr-tui
 run: build
 	./bin/$(BINARY)
 
@@ -43,11 +43,6 @@ vet:
 ## lint: run golangci-lint (requires golangci-lint in PATH)
 lint:
 	golangci-lint run ./...
-
-## demo: record doc/assets/demo.gif with vhs (set DECSR_DEMO_DIR to a throwaway project)
-demo:
-	@command -v vhs >/dev/null 2>&1 || { echo "vhs not found. install: go install github.com/charmbracelet/vhs@latest; also needs ttyd and ffmpeg"; exit 1; }
-	vhs doc/demo.tape
 
 ## clean: remove build artefacts
 clean:

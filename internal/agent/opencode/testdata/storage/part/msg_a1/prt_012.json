@@ -1,0 +1,24 @@
+{
+ "id": "prt_012",
+ "messageID": "msg_a1",
+ "sessionID": "ses_main",
+ "type": "tool",
+ "callID": "call_1",
+ "tool": "bash",
+ "state": {
+  "status": "completed",
+  "input": {
+   "command": "go test ./...",
+   "description": "Run tests"
+  },
+  "output": "all passed",
+  "title": "Run tests",
+  "metadata": {
+   "exit": 0
+  },
+  "time": {
+   "start": 1767261603000,
+   "end": 1767261605000
+  }
+ }
+}

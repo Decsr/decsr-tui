@@ -1,0 +1,19 @@
+{
+ "id": "prt_018",
+ "messageID": "msg_a1",
+ "sessionID": "ses_main",
+ "type": "tool",
+ "callID": "call_7",
+ "tool": "bash",
+ "state": {
+  "status": "running",
+  "input": {
+   "command": "sleep 60",
+   "description": "Wait"
+  },
+  "title": "Wait",
+  "time": {
+   "start": 1767261640000
+  }
+ }
+}

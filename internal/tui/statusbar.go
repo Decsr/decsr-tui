@@ -1,27 +1,21 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
-	"time"
 
-	"github.com/Decsr/Decsr-Code/internal/executil"
-	"github.com/Decsr/Decsr-Code/internal/ui"
+	"github.com/Decsr/decsr-tui/internal/ui"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
 // StatusBarModel renders a single-line status bar at the bottom.
 type StatusBarModel struct {
-	branch        string
-	state         string
-	stageInfo     string // e.g. "Stage 2/5: Must Have — Auth"
-	runner        string
-	model         string
-	effort        string
-	width         int
-	scrollOffset  int       // marquee scroll position for stageInfo
-	codingStarted time.Time // timestamp of first coder handoff for elapsed timer
+	branch       string
+	state        string
+	stageInfo    string // scrolling info text next to the state
+	hints        []ui.Hint
+	width        int
+	scrollOffset int // marquee scroll position for stageInfo
 }
 
 func NewStatusBar(width int) StatusBarModel {
@@ -36,65 +30,14 @@ func (m StatusBarModel) WithStageInfo(s string) StatusBarModel {
 	return m
 }
 func (m StatusBarModel) WithWidth(w int) StatusBarModel { m.width = w; return m }
-func (m StatusBarModel) WithCodingStarted(t time.Time) StatusBarModel {
-	m.codingStarted = t
-	return m
-}
-func (m StatusBarModel) WithRunnerModel(r, mdl string) StatusBarModel {
-	m.runner = r
-	m.model = mdl
-	return m
-}
 
-func (m StatusBarModel) WithEffort(effort string) StatusBarModel {
-	m.effort = effort
-	return m
-}
+// WithHints sets the key hints shown on the right.
+func (m StatusBarModel) WithHints(h []ui.Hint) StatusBarModel { m.hints = h; return m }
 
 // AdvanceScroll moves the marquee scroll position forward by one.
 func (m StatusBarModel) AdvanceScroll() StatusBarModel {
 	m.scrollOffset++
 	return m
-}
-
-// formatTokens returns a human-friendly token count string.
-func formatTokens(tokens int) string {
-	switch {
-	case tokens >= 1_000_000:
-		return fmt.Sprintf("%.1fM tok", float64(tokens)/1_000_000)
-	case tokens >= 1_000:
-		return fmt.Sprintf("%.1fk tok", float64(tokens)/1_000)
-	default:
-		return fmt.Sprintf("%d tok", tokens)
-	}
-}
-
-// formatTokensCompact is formatTokens without the " tok" suffix, used in
-// space-constrained panels where the unit is implied by the section title.
-func formatTokensCompact(tokens int) string {
-	switch {
-	case tokens >= 1_000_000:
-		return fmt.Sprintf("%.1fM", float64(tokens)/1_000_000)
-	case tokens >= 1_000:
-		return fmt.Sprintf("%.1fk", float64(tokens)/1_000)
-	default:
-		return fmt.Sprintf("%d", tokens)
-	}
-}
-
-// formatElapsed formats a duration for the status bar as compact "Xh Ym" or "Xm Xs" or "Xs".
-func formatElapsed(d time.Duration) string {
-	h := int(d.Hours())
-	m := int(d.Minutes()) % 60
-	s := int(d.Seconds()) % 60
-	switch {
-	case h > 0:
-		return fmt.Sprintf("%dh %dm", h, m)
-	case m > 0:
-		return fmt.Sprintf("%dm %ds", m, s)
-	default:
-		return fmt.Sprintf("%ds", s)
-	}
 }
 
 // Text styles of the status bar: no background, Muted for the frame of the
@@ -103,22 +46,6 @@ var (
 	statusBarText = lipgloss.NewStyle().Foreground(ui.Muted).Padding(0, 1)
 	statusBarKey  = lipgloss.NewStyle().Foreground(ui.Text).Bold(true).Padding(0, 1)
 )
-
-// statusBarShortcut defines a keyboard shortcut displayed in the status bar.
-type statusBarShortcut struct {
-	key   string
-	desc  string
-	color lipgloss.TerminalColor
-}
-
-// statusBarShortcuts defines the shortcut hints with per-action accent colors.
-var statusBarShortcuts = []statusBarShortcut{
-	{"Ctrl+A", "approve", ui.OK},
-	{"Ctrl+C", "chat", ui.Accent},
-	{"Ctrl+G", "git", ui.Accent},
-	{"Ctrl+T", "inspect", ui.Warn},
-	{"Ctrl+X", "cancel", ui.Fail},
-}
 
 func (m StatusBarModel) View() string {
 	return strings.Join(m.viewLines(), "\n")
@@ -137,43 +64,22 @@ func (m StatusBarModel) viewLines() []string {
 	descStyle := lipgloss.NewStyle().Foreground(ui.Muted)
 
 	var hints []string
-	for _, sc := range statusBarShortcuts {
-		keyStyle := lipgloss.NewStyle().
-			Foreground(sc.color).
-			Bold(true)
-		hints = append(hints, keyStyle.Render(" "+sc.key+" ")+descStyle.Render(sc.desc))
+	for _, h := range m.hints {
+		keyStyle := lipgloss.NewStyle().Foreground(ui.Accent).Bold(true)
+		hints = append(hints, keyStyle.Render(" "+h.Key+" ")+descStyle.Render(h.Label))
 	}
 
-	versionTag := lipgloss.NewStyle().
-		Foreground(ui.Muted).
-		Bold(true).
-		Render("v" + Version)
-
-	rightSide := strings.Join(hints, " ") + "  " + versionTag
+	rightSide := strings.Join(hints, " ")
 	rightWidth := lipglossLen(rightSide)
 
 	// ── Left side: fixed prefix + scrollable stageInfo + fixed suffix ──
 	prefix := ""
 	if m.branch != "" {
-		prefix = classicChip(m.branch, ui.Accent) + statusBarText.Render(" ")
+		prefix = lipgloss.NewStyle().Foreground(ui.Accent).Bold(true).Render(m.branch) + statusBarText.Render(" ")
 	}
 	prefix += statusBarText.Render("● " + m.state)
 
 	suffix := ""
-	if m.runner != "" || m.model != "" {
-		info := m.runner
-		if m.model != "" {
-			info += "/" + m.model
-		}
-		if m.effort != "" && m.effort != "default" {
-			info += " · " + m.effort
-		}
-		suffix += "  " + statusBarKey.Render(info)
-	}
-	if !m.codingStarted.IsZero() {
-		elapsed := time.Since(m.codingStarted).Round(time.Second)
-		suffix += "  " + statusBarKey.Render("◷ "+formatElapsed(elapsed))
-	}
 
 	prefixWidth := lipglossLen(prefix)
 	suffixWidth := lipglossLen(suffix)
@@ -200,7 +106,7 @@ func (m StatusBarModel) viewLines() []string {
 	// Otherwise: left on its own line, then wrap the hints (+ version) so they
 	// stay within the terminal width instead of overflowing the right edge.
 	lines := []string{left}
-	tokens := append(append([]string{}, hints...), versionTag)
+	tokens := hints
 	lines = append(lines, wrapStatusTokens(tokens, m.width)...)
 	return lines
 }
@@ -258,12 +164,3 @@ func (m StatusBarModel) renderScrollingStage(availableWidth int) string {
 // lipglossLen returns the visible cell width of a rendered string (ANSI-aware,
 // wide-glyph aware).
 func lipglossLen(s string) int { return ansi.StringWidth(s) }
-
-// GitBranch returns the current git branch name for root, or "" on error.
-func GitBranch(root string) string {
-	out, err := executil.Command("git", "-C", root, "rev-parse", "--abbrev-ref", "HEAD").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}

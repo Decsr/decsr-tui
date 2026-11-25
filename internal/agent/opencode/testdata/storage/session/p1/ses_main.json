@@ -1,0 +1,11 @@
+{
+ "id": "ses_main",
+ "version": "1.0.0",
+ "projectID": "p1",
+ "directory": "/work/demo",
+ "title": "Fix x bug",
+ "time": {
+  "created": 1767261600000,
+  "updated": 1767261660000
+ }
+}
