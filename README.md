@@ -11,50 +11,154 @@
   <a href="LICENSE"><img alt="Licence" src="https://img.shields.io/github/license/Decsr/decsr-tui"></a>
 </p>
 
+
 <p align="center">
-  <a href="#what-it-is">What it is</a> ·
+  <a href="#why-decsr-tui">Why</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#get-started-in-a-minute">Get started</a> ·
   <a href="#screens">Screens</a> ·
   <a href="#features">Features</a> ·
-  <a href="#quick-start">Quick start</a> ·
-  <a href="#usage">Usage</a> ·
   <a href="#keys">Keys</a> ·
   <a href="#configuration">Configuration</a> ·
   <a href="#supported-agents">Agents</a> ·
   <a href="#privacy-and-safety">Privacy</a> ·
-  <a href="#troubleshooting">Troubleshooting</a>
+  <a href="#troubleshooting">FAQ</a>
 </p>
 
-## What it is
+decsr-tui is a terminal program for people who run coding agents (claude,
+opencode or codex) in a terminal. It shows what the agent is doing, live, and
+lets you review, stage and commit its changes, all in one place.
 
-decsr-tui is one terminal program with three screens. **Home** lists your
-repository and the coding-agent sessions found for it. **Git** is a
-lazygit-style client: stage files, hunks and single lines, rebase
-interactively, cherry-pick, stash and more. **Watch** shows a live coding-agent
-session (claude, opencode or codex) the way [decsr](https://github.com/Decsr/Decsr-Code)
-shows it: the agent and its subagents as a node graph, with a live pane for
-tokens, context, cost estimate and changed files.
+## Why decsr-tui
 
-It is a fork of the decsr orchestrator with the orchestrator removed. It only
-reads the session files that the agent CLIs write; it never starts, drives or
-talks to an agent.
+- **Watch an agent live.** See the session and every subagent as a node graph,
+  with tokens, context use and the files it changed.
+- **Review and commit in the same place.** Stage files, hunks or single lines,
+  then commit, without switching tools.
+- **Safe to leave open.** It is read-only: it never starts or talks to an agent,
+  and it has no network use of its own.
+- **Spot trouble early.** A context meter and a stall warning show when a long
+  session is filling up or has gone quiet.
+- **One binary for Ubuntu and Windows**, set up with a plain YAML config file.
 
-**Why**
+## Install
 
-- Review and stage an agent's edits, then commit, in the same terminal where it
-  runs, without switching tools.
-- See what a long agent session is doing: which subagent is running, how full the
-  context window is, whether a node has stalled.
-- No agent is started and no network is used (except the git network commands
-  you trigger yourself), so it is safe to leave open next to any agent.
-- One static binary for Ubuntu and Windows, plus a plain YAML config file.
+You need `git` on your `PATH`. The one-line installers download a published
+release and check its SHA-256 against the release `checksums.txt`.
+
+**Ubuntu**
+
+```bash
+sudo apt update && sudo apt install -y git curl    # prerequisites
+curl -fsSL https://raw.githubusercontent.com/Decsr/decsr-tui/main/scripts/install.sh | sh
+```
+
+It installs to `~/.local/bin`. Set `DECSR_INSTALL_DIR` or `DECSR_VERSION` to
+change the directory or the release. If it says `~/.local/bin` is not on your
+`PATH`:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+```
+
+**Windows** (PowerShell; install [Git for Windows](https://git-scm.com/download/win)
+first, for example `winget install --id Git.Git -e`, and use Windows Terminal)
+
+```powershell
+irm https://raw.githubusercontent.com/Decsr/decsr-tui/main/scripts/install.ps1 | iex
+```
+
+It installs to `%LOCALAPPDATA%\Programs\decsr-tui`, adds that folder to your user
+`PATH` if missing, and needs no admin rights. Set `$env:DECSR_INSTALL_DIR` or
+`$env:DECSR_VERSION` first to change the directory or the release. Open a new
+terminal afterwards so the `PATH` change takes effect.
+
+<details>
+<summary><b>Install with <code>go install</code></b> (needs Go 1.26 or newer)</summary>
+
+Ubuntu (get Go from <https://go.dev/dl/>; the apt package is usually older):
+
+```bash
+go install github.com/Decsr/decsr-tui/cmd/decsr-tui@latest
+echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc   # once
+```
+
+Windows (Go: `winget install --id GoLang.Go -e`):
+
+```powershell
+go install github.com/Decsr/decsr-tui/cmd/decsr-tui@latest
+# once, add %USERPROFILE%\go\bin to your user PATH, then open a new terminal:
+[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path','User') + ";$env:USERPROFILE\go\bin", 'User')
+```
+
+</details>
+
+<details>
+<summary><b>Build from source</b> (needs Go 1.26 or newer)</summary>
+
+Ubuntu:
+
+```bash
+git clone https://github.com/Decsr/decsr-tui.git && cd decsr-tui
+go build -o decsr-tui ./cmd/decsr-tui     # then: sudo install decsr-tui /usr/local/bin/
+# or run without building:  go run ./cmd/decsr-tui
+```
+
+Windows (PowerShell):
+
+```powershell
+git clone https://github.com/Decsr/decsr-tui.git; cd decsr-tui
+go build -o decsr-tui.exe ./cmd/decsr-tui
+# or run without building:  go run ./cmd/decsr-tui
+```
+
+</details>
+
+Release archives for other platforms (macOS, arm64) are also attached to each
+GitHub release. They are not a tested target.
+
+Check that it works:
+
+```sh
+decsr-tui --version
+```
+
+## Get started in a minute
+
+1. Open a terminal and `cd` into a git repository.
+2. Run `decsr-tui`. It opens on Home and lists the agent sessions found for
+   that repository.
+3. Press `W` to watch a session, or `G` for the git client.
+4. Press `?` for the keys of the screen you are on. Press `q` to quit.
+
+Options:
+
+```text
+decsr-tui [--session <id-prefix>] [--config <file>] [--theme auto|dark|light] [--version] [repo-dir]
+```
+
+| Option | Meaning |
+|---|---|
+| `repo-dir` | The repository to open. Default: the current directory. |
+| `--session <id>` | Open the Watch screen on the session whose id starts with this. |
+| `--config <file>` | Config file. Default: `$DECSR_TUI_CONFIG`, else `<user config dir>/decsr-tui/config.yml`. |
+| `--theme <mode>` | `auto` (ask the terminal), `dark` or `light`. Overrides the config. |
+| `--version` | Print the version and exit. |
+
+```sh
+decsr-tui /path/to/repo                 # another repository (Windows: C:\src\repo)
+decsr-tui --session 3f2a                # straight to Watch on the session whose id starts with 3f2a
+```
 
 ## Screens
 
-Switch with `H` Home, `G` Git and `W` Watch from any screen. The program starts
-on Home (or on Watch with `--session`). The previews below are text renderings
-of the real screens.
+Switch with `H` Home, `G` Git and `W` Watch from any screen. The previews below
+are text renderings of the real screens.
 
-**Home**: the logo, the sessions of this repository, the repo state and a menu.
+### Home
+
+Your starting point. It shows the sessions of this repository, the repo state
+and a menu. Pick a session and press `enter` to watch it.
 
 ```text
 ◆ decsr · myrepo  [H Home] G Git W Watch   main                  [▘ ✳ claude 1.2M ×40]
@@ -78,7 +182,11 @@ of the real screens.
   ↑↓  move   ←→  list   enter  open   W  watch   G  git   ?  help   q  quit
 ```
 
-**Git**: five panels on the left; the main pane follows the selection.
+### Git
+
+A lazygit-style client. Five panels on the left (Files, Branches, Commits,
+Stash, Agent); the main pane follows the selection. Stage, commit, rebase and
+more without leaving the terminal.
 
 ```text
 ◆ decsr · myrepo  H Home [G Git] W Watch   main ↑2 ↓1          [▘ ✳ claude · Fix the login bug]
@@ -97,7 +205,11 @@ of the real screens.
 Panels 3 Commits, 4 Stash and 5 Agent sit under Branches; the focused panel is
 the one that is open.
 
-**Watch**: the session is the root node, every subagent a child node.
+### Watch
+
+A live, read-only view of one agent session. The session is the root node and
+every subagent a child node. The live pane shows tokens, context, cost estimate
+and changed files for the selected node.
 
 ```text
 ◆ decsr · Decsr-Code  H Home G Git [W Watch]   main        [▘ ✳ claude 19.1M ×103]  [✓ Explore 415k ×13]
@@ -150,150 +262,34 @@ left out.
 - Ubuntu and Windows: one-line installers, `go install`, or build from source.
 - Mouse wheel and click support in the Git screen.
 
-## Quick start
-
-decsr-tui is one binary, `decsr-tui`, and works the same on Ubuntu and Windows.
-It needs `git` on the `PATH`. Go 1.26 or newer is needed only for the
-`go install` and from-source routes.
-
-The one-line installers download a published release and check its SHA-256
-against the release `checksums.txt`.
-
-### Ubuntu
-
-```bash
-sudo apt update && sudo apt install -y git curl    # prerequisites
-```
-
-**(a) One-line installer** (installs to `~/.local/bin`; set `DECSR_INSTALL_DIR` or `DECSR_VERSION` to change the directory or the release):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Decsr/decsr-tui/main/scripts/install.sh | sh
-```
-
-If it says `~/.local/bin` is not on your `PATH`:
-
-```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-```
-
-**(b) `go install`** (needs Go 1.26+; get it from <https://go.dev/dl/>, the apt package is usually older):
-
-```bash
-go install github.com/Decsr/decsr-tui/cmd/decsr-tui@latest
-echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc   # once
-```
-
-**(c) From source:**
-
-```bash
-git clone https://github.com/Decsr/decsr-tui.git && cd decsr-tui
-go build -o decsr-tui ./cmd/decsr-tui     # then: sudo install decsr-tui /usr/local/bin/
-# or run without building:  go run ./cmd/decsr-tui
-```
-
-### Windows
-
-Prerequisite: [Git for Windows](https://git-scm.com/download/win), for example
-`winget install --id Git.Git -e`. Use Windows Terminal or any terminal with
-ANSI colours. The commands below are PowerShell.
-
-**(a) One-line installer** (installs to `%LOCALAPPDATA%\Programs\decsr-tui`, adds it to your user `PATH` if missing, needs no admin rights; set `$env:DECSR_INSTALL_DIR` or `$env:DECSR_VERSION` first to change the directory or the release):
-
-```powershell
-irm https://raw.githubusercontent.com/Decsr/decsr-tui/main/scripts/install.ps1 | iex
-```
-
-Open a new terminal afterwards so the `PATH` change takes effect.
-
-**(b) `go install`** (needs Go 1.26+, `winget install --id GoLang.Go -e`):
-
-```powershell
-go install github.com/Decsr/decsr-tui/cmd/decsr-tui@latest
-# once, add %USERPROFILE%\go\bin to your user PATH, then open a new terminal:
-[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path','User') + ";$env:USERPROFILE\go\bin", 'User')
-```
-
-**(c) From source:**
-
-```powershell
-git clone https://github.com/Decsr/decsr-tui.git; cd decsr-tui
-go build -o decsr-tui.exe ./cmd/decsr-tui
-# or run without building:  go run ./cmd/decsr-tui
-```
-
-Release archives for other platforms (macOS, arm64) are also attached to each
-GitHub release; they are not a tested target.
-
-### Check it works
-
-```sh
-decsr-tui --version
-cd your-repo && decsr-tui
-```
-
-### Upgrade
-
-Re-run the installer (it installs the latest release over the old binary; close
-a running `decsr-tui` first on Windows), or run
-`go install github.com/Decsr/decsr-tui/cmd/decsr-tui@latest` again. To pin a
-release with the installer, set `DECSR_VERSION` (for example `v0.4.0`).
-
-### Uninstall
-
-| | Ubuntu | Windows |
-|---|---|---|
-| Binary (installer) | `rm ~/.local/bin/decsr-tui` | delete `%LOCALAPPDATA%\Programs\decsr-tui` and remove it from your user `PATH` |
-| Binary (`go install`) | `rm ~/go/bin/decsr-tui` | delete `%USERPROFILE%\go\bin\decsr-tui.exe` |
-| Config (optional) | `rm -r ~/.config/decsr-tui` | delete `%AppData%\decsr-tui` |
-
-If you set `DECSR_INSTALL_DIR`, `GOBIN` or `GOPATH`, the binary is there
-instead. decsr-tui writes nothing else.
-
-### Where it reads and writes
-
-| | Ubuntu | Windows |
-|---|---|---|
-| Config file | `~/.config/decsr-tui/config.yml` | `%AppData%\decsr-tui\config.yml` |
-| claude sessions | `$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects` | `%CLAUDE_CONFIG_DIR%\projects`, else `%USERPROFILE%\.claude\projects` |
-| codex sessions | `$CODEX_HOME/sessions`, else `~/.codex/sessions` | `%CODEX_HOME%\sessions`, else `%USERPROFILE%\.codex\sessions` |
-| opencode data | `$XDG_DATA_HOME/opencode`, else `~/.local/share/opencode` | `%XDG_DATA_HOME%\opencode`, else `%USERPROFILE%\.local\share\opencode` |
-| Editor (`e` key) | `$EDITOR`, `$VISUAL`, then `nano`, `vi` or `vim` | `%EDITOR%`, `%VISUAL%`, then `notepad` |
-| Custom commands | run with `sh -c` | run with `cmd /C` |
-
-`$DECSR_TUI_CONFIG` or `--config` override the config path. Paths on Linux are
-case-sensitive; on Windows they compare case-insensitively.
-
-## Usage
-
-```text
-decsr-tui [--session <id-prefix>] [--config <file>] [--theme auto|dark|light] [--version] [repo-dir]
-```
-
-| Flag | Meaning |
-|---|---|
-| `repo-dir` | The repository to open. Default: the current directory. |
-| `--session <id>` | Open the Watch screen on the session whose id starts with this. |
-| `--config <file>` | Config file. Default: `$DECSR_TUI_CONFIG`, else `<user config dir>/decsr-tui/config.yml`. |
-| `--theme <mode>` | `auto` (ask the terminal), `dark` or `light`. Overrides the config. |
-| `--version` | Print the version and exit. |
-
-```sh
-cd your-repo && decsr-tui               # the current repository
-decsr-tui /path/to/repo                 # another repository (Windows: C:\src\repo)
-decsr-tui --theme light
-decsr-tui --session 3f2a                # straight to Watch on the session whose id starts with 3f2a
-```
-
-Screen keys, from any screen: `H` Home, `G` Git, `W` Watch, `?` help, `q` quit.
-(Once you are on Git, `G` on a list jumps to its bottom.)
-
 ## Keys
 
-`?` shows the keys of the focused panel and the global ones; on Git, `x` opens
-them as a menu. The full reference is [`doc/tui.md`](doc/tui.md).
+From any screen: `H` Home, `G` Git, `W` Watch, `?` help for the focused panel,
+`q` quit. On Git, `x` opens the keys as a menu. (Once you are on Git, `G` on a
+list jumps to its bottom.)
 
-### Home
+| Where | Key | Action |
+|---|---|---|
+| Home | `↑` `↓` / `enter` | Move / open the session or menu entry |
+| Home | `tab` | Switch between Sessions and Menu |
+| Watch | `↑` `↓`, `←` `→` | Previous or next node; parent or first child |
+| Watch | `f` | Follow the newest running node and step |
+| Watch | `space`, `enter` | Expand the card; full detail of a step (`esc` closes) |
+| Watch | `v` | Hide or show the live pane |
+| Git | `tab`, `1`-`5` | Next panel, jump to a panel |
+| Git | `space`, `a` | Stage or unstage the selection, or everything |
+| Git | `enter` | Staging view (hunks and lines) |
+| Git | `c`, `A` | Commit, amend |
+| Git | `f`, `p`, `P` | Fetch, pull, push |
+| Git | `z`, `Z` | Undo, redo through the reflog |
+| Git | `/` | Filter the focused list |
+
+The full reference is in [`doc/tui.md`](doc/tui.md).
+
+<details>
+<summary><b>More keys by panel</b></summary>
+
+**Home**
 
 | Key | Action |
 |---|---|
@@ -303,7 +299,7 @@ them as a menu. The full reference is [`doc/tui.md`](doc/tui.md).
 | `w`, `g` | Go to Watch, Git |
 | `R`, `?` | Refresh, help |
 
-### Watch
+**Watch**
 
 | Key | Action |
 |---|---|
@@ -318,12 +314,12 @@ them as a menu. The full reference is [`doc/tui.md`](doc/tui.md).
 | `pgup` `pgdn`, `ctrl+u` `ctrl+d` | Scroll the diff |
 | `R` | Refresh |
 
-### Git: global
+**Git: global**
 
 | Key | Action |
 |---|---|
 | `tab`, `l`, `→` / `shift+tab`, `h`, `←` | Next / previous panel |
-| `1`–`5` | Jump to a panel |
+| `1`-`5` | Jump to a panel |
 | `j`/`k`, `↑`/`↓`, `home`, `G` | Move, top, bottom |
 | `ctrl+d`, `ctrl+u`, `pgdn`, `pgup` | Scroll the main pane |
 | `/` | Filter the focused list |
@@ -334,7 +330,7 @@ them as a menu. The full reference is [`doc/tui.md`](doc/tui.md).
 | `@` | Show or hide the command log |
 | `x`, `?`, `q` | Action menu, help, quit |
 
-### Git: Files
+**Git: Files**
 
 | Key | Action |
 |---|---|
@@ -347,12 +343,12 @@ them as a menu. The full reference is [`doc/tui.md`](doc/tui.md).
 | `e` | Edit in your editor |
 | `` ` `` | Tree or flat list |
 
-**Staging view.** `j`/`k` move the cursor, `space` stages or unstages the
+Staging view: `j`/`k` move the cursor, `space` stages or unstages the
 selection, `a` switches between hunk and line mode, `v` starts a line range,
 `tab` switches between the unstaged and the staged diff, `d` discards, `esc`
 leaves.
 
-### Git: Branches
+**Git: Branches**
 
 | Key | Action |
 |---|---|
@@ -364,7 +360,7 @@ leaves.
 | `p` (Worktrees) | Prune |
 | `enter` | Log of the branch in the main pane |
 
-### Git: Commits
+**Git: Commits**
 
 | Key | Action |
 |---|---|
@@ -380,7 +376,7 @@ leaves.
 Rebase todo: `p r s f d e` set the action, `ctrl+j`/`ctrl+k` move the row,
 `enter` starts, `esc` cancels.
 
-### Git: Stash and Agent
+**Git: Stash and Agent**
 
 Stash: `space` apply, `g` pop, `d` drop.
 
@@ -388,16 +384,12 @@ Agent (the session list and activity tree inside the Git screen): `enter` open,
 `space` expand a subagent, `f` follow, `G` newest, `c` Activity or Changes,
 `[` `]` file in Changes, `esc` back.
 
+</details>
+
 ## Configuration
 
-A YAML file at the path below. A missing file means the defaults; an unknown
-key or a bad value is an error at startup.
-
-| | Path |
-|---|---|
-| Ubuntu | `~/.config/decsr-tui/config.yml` |
-| Windows | `%AppData%\decsr-tui\config.yml` |
-| Any | `--config <file>` or `$DECSR_TUI_CONFIG` |
+The config is a YAML file. A missing file means the defaults; an unknown key or
+a bad value is an error at startup.
 
 ```yaml
 theme: auto            # auto | dark | light
@@ -441,6 +433,20 @@ customCommands:
   `.SelectedWorktree`, `.CheckedOutBranch`, `.RepoDir` and `.Form`, and the
   `quote` function for shell quoting.
 
+**Where it reads and writes**
+
+| | Ubuntu | Windows |
+|---|---|---|
+| Config file | `~/.config/decsr-tui/config.yml` | `%AppData%\decsr-tui\config.yml` |
+| claude sessions | `$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects` | `%CLAUDE_CONFIG_DIR%\projects`, else `%USERPROFILE%\.claude\projects` |
+| codex sessions | `$CODEX_HOME/sessions`, else `~/.codex/sessions` | `%CODEX_HOME%\sessions`, else `%USERPROFILE%\.codex\sessions` |
+| opencode data | `$XDG_DATA_HOME/opencode`, else `~/.local/share/opencode` | `%XDG_DATA_HOME%\opencode`, else `%USERPROFILE%\.local\share\opencode` |
+| Editor (`e` key) | `$EDITOR`, `$VISUAL`, then `nano`, `vi` or `vim` | `%EDITOR%`, `%VISUAL%`, then `notepad` |
+| Custom commands | run with `sh -c` | run with `cmd /C` |
+
+`$DECSR_TUI_CONFIG` or `--config` override the config path. Paths on Linux are
+case-sensitive; on Windows they compare case-insensitively.
+
 ## Supported agents
 
 | Agent | Sessions are read from (Ubuntu / Windows) | Status |
@@ -473,27 +479,61 @@ checks this project follows.
 
 ## Troubleshooting
 
-- **"No sessions found".** Sessions are matched by working directory, so the
-  repository path must be the directory the agent ran in. The match ignores case
-  on Windows and macOS, but not on Linux. Start decsr-tui from that directory,
-  or pass it as `repo-dir`. Check that the agent is enabled under `agents:` and
-  that its directory in the table above exists (claude sessions are stored in a
-  folder named after the path, with every character that is not a letter, digit
-  or `-` turned into `-`).
-- **Colours look wrong.** Use a truecolor terminal. If the background guess is
-  wrong, force `--theme dark` or `--theme light`. `NO_COLOR` turns colour off.
-- **Fonts and glyphs.** The UI uses box drawing, block and a few symbol
-  characters. A Nerd Font is optional and not needed. decsr recommends
-  [Monaspace](https://monaspace.githubnext.com/). If glyphs show as boxes, switch
-  the terminal font.
-- **Windows.** Use Windows Terminal. The old console host (a plain `cmd.exe` or
-  PowerShell window) has limited colour and glyph support.
-- **`decsr-tui: command not found` after `go install`.** Add Go's bin directory
-  to your `PATH`: `~/go/bin` on Ubuntu, `%USERPROFILE%\go\bin` on Windows (see
-  Quick start), then open a new terminal. `go env GOBIN GOPATH` shows where it
-  went.
-- **Installer cannot find a release.** Set `DECSR_VERSION` to a tag such as
-  `v0.4.0`, or use `go install`.
+**It says "No sessions found".**
+Sessions are matched by working directory, so the repository path must be the
+directory the agent ran in. The match ignores case on Windows and macOS, but not
+on Linux. Start decsr-tui from that directory, or pass it as `repo-dir`. Check
+that the agent is enabled under `agents:` and that its directory in the table
+above exists (claude sessions are stored in a folder named after the path, with
+every character that is not a letter, digit or `-` turned into `-`).
+
+**The colours look wrong.**
+Use a truecolor terminal. If the background guess is wrong, force
+`--theme dark` or `--theme light`. `NO_COLOR` turns colour off.
+
+**Some glyphs show as boxes.**
+The UI uses box drawing, block and a few symbol characters. A Nerd Font is
+optional and not needed. decsr recommends
+[Monaspace](https://monaspace.githubnext.com/). Switch the terminal font if
+glyphs are missing.
+
+**It looks poor on Windows.**
+Use Windows Terminal. The old console host (a plain `cmd.exe` or PowerShell
+window) has limited colour and glyph support.
+
+**`decsr-tui: command not found` after `go install`.**
+Add Go's bin directory to your `PATH`: `~/go/bin` on Ubuntu,
+`%USERPROFILE%\go\bin` on Windows (see [Install](#install)), then open a new
+terminal. `go env GOBIN GOPATH` shows where it went.
+
+**The installer cannot find a release.**
+Set `DECSR_VERSION` to a tag such as `v0.4.0`, or use `go install`.
+
+## Upgrade and uninstall
+
+<details>
+<summary><b>Upgrade</b></summary>
+
+Re-run the installer. It installs the latest release over the old binary; close
+a running `decsr-tui` first on Windows. Or run
+`go install github.com/Decsr/decsr-tui/cmd/decsr-tui@latest` again. To pin a
+release with the installer, set `DECSR_VERSION` (for example `v0.4.0`).
+
+</details>
+
+<details>
+<summary><b>Uninstall</b></summary>
+
+| | Ubuntu | Windows |
+|---|---|---|
+| Binary (installer) | `rm ~/.local/bin/decsr-tui` | delete `%LOCALAPPDATA%\Programs\decsr-tui` and remove it from your user `PATH` |
+| Binary (`go install`) | `rm ~/go/bin/decsr-tui` | delete `%USERPROFILE%\go\bin\decsr-tui.exe` |
+| Config (optional) | `rm -r ~/.config/decsr-tui` | delete `%AppData%\decsr-tui` |
+
+If you set `DECSR_INSTALL_DIR`, `GOBIN` or `GOPATH`, the binary is there
+instead. decsr-tui writes nothing else.
+
+</details>
 
 ## Roadmap
 

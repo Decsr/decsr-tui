@@ -34,6 +34,7 @@ go.work.sum
 .cache
 bin
 /decsr
+/decsr-tui
 
 /tmp/
 /dist/
